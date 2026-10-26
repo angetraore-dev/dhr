@@ -32,7 +32,7 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
       # Init : joue schema.sql au premier démarrage (base vide)
-      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      # - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dhr} -d ${POSTGRES_DB:-dhr}"]
       interval: 5s
@@ -52,25 +52,22 @@ services:
     container_name: dhr_backend
     restart: unless-stopped
     environment:
-      # DB
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-dhr}:${POSTGRES_PASSWORD:-dhr_dev_password}@db:5432/${POSTGRES_DB:-dhr}
-      # Auth
       API_KEY_READ:   ${API_KEY_READ:-dhr_dev_read_key_change_me}
       JWT_SECRET:     ${JWT_SECRET:-change_me_in_production}
       JWT_ALGORITHM:  HS256
       JWT_EXPIRE_MIN: ${JWT_EXPIRE_MIN:-60}
-      # Export
       MAX_EXPORT_ROWS: ${MAX_EXPORT_ROWS:-100000}
-      # Divers
       TZ: ${TZ:-Africa/Abidjan}
       ENV: ${ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
-      # Hot-reload en dev : monte le code
       - ./backend/app:/app/app:ro
-      # Dossier pour stocker les fichiers bruts uploadés
+      - ./backend/alembic:/app/alembic:rw
+      - ./backend/alembic.ini:/app/alembic.ini:ro
+      - ./backend/entrypoint.sh:/app/entrypoint.sh:ro
       - uploads_data:/app/uploads
     depends_on:
       db:
@@ -80,7 +77,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 30s   # plus long : le temps des migrations
     networks:
       - dhr_net
 

@@ -29,4 +29,59 @@ docker compose exec db psql -U dhr -d dhr -c "\dt"
 
 docker compose exec db psql -U dhr -d dhr -c "SELECT code, libelle FROM type_ouvrage;"
 # Attendu : PMH, HV, HVA, PEA, AUTRE
+
+ls backend/alembic/versions/
+# Attendu : .gitkeep (ou vide)
+
+ls backend/alembic/
+# Attendu : env.py  script.py.mako  versions/
+
+ls backend/
+# Attendu : alembic.ini  alembic/  app/  Dockerfile  entrypoint.sh  pyproject.toml
+
+ls backend/app/
+# Attendu : __init__.py  config.py  db.py  main.py  models.py
+
 ```
+
+Dans le message suivant, je te donnerai :
+
+    Les commandes pour :
+
+        Mettre à jour docker-compose.yml (monter alembic/)
+
+        Recréer les containers (docker compose up -d --build)
+
+        Lancer alembic revision --autogenerate -m "initial schema"
+
+        Inspecter le fichier généré dans alembic/versions/
+
+    Le code des ajouts manuels à insérer dans la migration :
+
+        Extensions
+
+        Fonctions
+
+        Triggers
+
+        Colonnes générées
+
+        Index GIST + trigram
+
+        Vues
+
+        Seed
+
+    La procédure de validation :
+
+        alembic upgrade head → succès
+
+        \dt → 13 tables
+
+        \dv → 3 vues
+
+        \df → 3 fonctions
+
+        \d ligne_ingeree → colonne geom présente
+
+        Test de la fonction geom_from_latlon(-5.3, 4.0)
