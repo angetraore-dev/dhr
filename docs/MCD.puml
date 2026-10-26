@@ -1,0 +1,456 @@
+@startuml DHR_Model_Classes
+!theme plain
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam class {
+    BackgroundColor #FEFEFE
+    BorderColor #2C3E50
+    ArrowColor #2C3E50
+}
+skinparam note {
+    BackgroundColor #FFF9C4
+    BorderColor #B7950B
+}
+hide empty methods
+
+title Diagramme de classes — Base de données DHR\nCentralisation des ouvrages hydrauliques ruraux
+
+' =========================================================
+' PACKAGE 1 — RÉFÉRENTIELS
+' =========================================================
+package "Référentiels" as PKG_REF {
+
+    class Source <<table>> {
+        + id_source : int {id}
+        + nom : string {unique}
+        + type_source : TypeSource
+        + actif : boolean
+        + commentaire : text
+        + created_at : timestamp
+        + updated_at : timestamp
+    }
+
+    enum TypeSource <<enum>> {
+        public
+        prive
+        bailleur
+        etat
+        autre
+    }
+
+    class TypeOuvrage <<table>> {
+        + id_type_ouvrage : int {id}
+        + code : string {unique}
+        + libelle : string
+        + description : text
+        + actif : boolean
+    }
+
+    class RefGeoAdmin <<table>> {
+        + id_geo : int {id}
+        + niveau : NiveauGeo
+        + nom : string
+        + code_officiel : string
+        + type_localite : TypeLocalite
+        + created_at : timestamp
+        + updated_at : timestamp
+    }
+
+    enum NiveauGeo <<enum>> {
+        district
+        region
+        departement
+        sous_prefecture
+        localite
+    }
+
+    enum TypeLocalite <<enum>> {
+        village
+        campement
+        autre
+    }
+
+    class Localite <<table>> {
+        + id_localite : int {id}
+        + nom_usage : string
+        + latitude_centre : double
+        + longitude_centre : double
+        + geom_centre : geometry(Point,4326)
+        + commentaire : text
+        + metadata : jsonb
+        + created_at : timestamp
+        + updated_at : timestamp
+    }
+
+    class LocaliteAlias <<table>> {
+        + id_alias : int {id}
+        + alias : string
+        + source_alias : string
+    }
+
+}
+
+' =========================================================
+' PACKAGE 2 — INGESTION
+' =========================================================
+package "Ingestion" as PKG_ING {
+
+    class Fichier <<table>> {
+        + id_fichier : bigint {id}
+        + nom_fichier_original : string
+        + chemin_stockage : text
+        + hash_sha256 : string
+        + taille_octets : bigint
+        + date_reception : timestamp
+        + date_ingestion : timestamp
+        + statut : StatutFichier
+        + nb_feuilles : int
+        + nb_lignes_total : int
+        + est_reingestion : boolean
+        + commentaire : text
+        + created_at : timestamp
+        + updated_at : timestamp
+    }
+
+    enum StatutFichier <<enum>> {
+        en_attente
+        en_cours
+        ingere
+        partiel
+        erreur
+    }
+
+    class Feuille <<table>> {
+        + id_feuille : bigint {id}
+        + nom_feuille : string
+        + index_feuille : int
+        + type_contenu : TypeContenu
+        + nb_lignes : int
+        + nb_lignes_valides : int
+        + statut_ingestion : StatutIngestion
+        + message_erreur : text
+        + created_at : timestamp
+    }
+
+    enum TypeContenu <<enum>> {
+        ouvrages
+        cgpe
+        mixte
+        autre
+        inconnu
+    }
+
+    class IngestionRun <<table>> {
+        + id_run : bigint {id}
+        + mode : ModeIngestion
+        + limite_lignes : int
+        + ligne_debut : int
+        + ligne_fin : int
+        + nb_lignes_ingerees : int
+        + statut : StatutIngestion
+        + message : text
+        + started_at : timestamp
+        + finished_at : timestamp
+    }
+
+    enum ModeIngestion <<enum>> {
+        complet
+        echantillon
+        plage
+    }
+
+    enum StatutIngestion <<enum>> {
+        en_attente
+        en_cours
+        ingere
+        partiel
+        erreur
+        annule
+    }
+
+    class LigneIngeree <<table>> {
+        + id_ligne : bigint {id}
+        + num_ligne_source : int
+        + donnees_brutes : jsonb
+        + district_brut : string
+        + region_brute : string
+        + departement_brut : string
+        + sous_prefecture_brute : string
+        + localite_brute : string
+        + type_localite_brut : string
+        + latitude_decimal : double
+        + longitude_decimal : double
+        + geom : geometry(Point,4326)
+        + type_ouvrage_brut : string
+        + etat_ouvrage_brut : string
+        + annee_projet : int
+        + bailleur_brut : string
+        + type_financement_brut : string
+        + a_cgpe : boolean
+        + statut_qualite : StatutQualite
+        + message_qualite : text
+        + created_at : timestamp
+    }
+
+    enum StatutQualite <<enum>> {
+        ok
+        localite_non_resolue
+        geom_invalide
+        type_ouvrage_inconnu
+        rejete
+        doublon_suspect
+    }
+
+}
+
+' =========================================================
+' PACKAGE 3 — MÉTIER CONSOLIDÉ
+' =========================================================
+package "Métier (consolidé)" as PKG_METIER {
+
+    class Ouvrage <<table>> {
+        + id_ouvrage : bigint {id}
+        + code_ouvrage : string
+        + etat : EtatOuvrage
+        + annee_realisation : int
+        + latitude_decimal : double
+        + longitude_decimal : double
+        + geom : geometry(Point,4326)
+        + commentaire : text
+        + metadata : jsonb
+        + created_at : timestamp
+        + updated_at : timestamp
+    }
+
+    enum EtatOuvrage <<enum>> {
+        fonctionnel
+        en_panne
+        abandonne
+        inconnu
+    }
+
+    class CGPE <<table>> {
+        + id_cgpe : int {id}
+        + existe : boolean
+        + date_creation : date
+        + statut : StatutCGPE
+        + nb_membres : int
+        + commentaire : text
+        + metadata : jsonb
+        + created_at : timestamp
+        + updated_at : timestamp
+    }
+
+    enum StatutCGPE <<enum>> {
+        fonctionnel
+        non_fonctionnel
+        inconnu
+    }
+
+    class ProjetFinancement <<table>> {
+        + id_projet : bigint {id}
+        + nom_projet : string
+        + annee : int
+        + type_financement : TypeFinancement
+        + montant : decimal
+        + devise : string
+        + commentaire : text
+        + created_at : timestamp
+        + updated_at : timestamp
+    }
+
+    enum TypeFinancement <<enum>> {
+        etat
+        prive
+        partenariat
+        inconnu
+    }
+
+    class OuvrageProjet <<table>> {
+        + role_financement : RoleFinancement
+    }
+
+    enum RoleFinancement <<enum>> {
+        principal
+        co_financement
+    }
+
+}
+
+' =========================================================
+' PACKAGE 4 — VUES (lecture seule, pour l'UI carto)
+' =========================================================
+package "Vues (lecture seule)" as PKG_VUES {
+
+    class VPointsParFichier <<view>> {
+        + id_fichier : bigint
+        + nom_fichier_original : string
+        + date_ingestion : timestamp
+        + source : string
+        + id_feuille : bigint
+        + nom_feuille : string
+        + id_ligne : bigint
+        + num_ligne_source : int
+        + type_ouvrage_brut : string
+        + etat_ouvrage_brut : string
+        + annee_projet : int
+        + bailleur_brut : string
+        + type_financement_brut : string
+        + statut_qualite : StatutQualite
+        + latitude_decimal : double
+        + longitude_decimal : double
+        + geom : geometry(Point,4326)
+    }
+
+    class VPointsConsolides <<view>> {
+        + id_ouvrage : bigint
+        + code_ouvrage : string
+        + etat : EtatOuvrage
+        + type_ouvrage : string
+        + annee_realisation : int
+        + localite : string
+        + sous_prefecture : string
+        + departement : string
+        + region : string
+        + district : string
+        + latitude_decimal : double
+        + longitude_decimal : double
+        + geom : geometry(Point,4326)
+    }
+
+    class VQualiteParFichier <<view>> {
+        + id_fichier : bigint
+        + nom_fichier_original : string
+        + source : string
+        + statut : StatutFichier
+        + nb_lignes_total : int
+        + nb_ok : int
+        + nb_localite_non_resolue : int
+        + nb_geom_invalide : int
+        + nb_type_inconnu : int
+        + nb_rejetes : int
+    }
+
+}
+
+' =========================================================
+' ASSOCIATIONS — RÉFÉRENTIELS
+' =========================================================
+RefGeoAdmin "0..*" -- "0..1" RefGeoAdmin : parent > enfant\n{hiérarchie district→...→localité}
+Localite "1" -- "1" RefGeoAdmin : {id_geo doit être niveau=localite}
+Localite "1" -- "0..*" LocaliteAlias : alias
+
+' =========================================================
+' ASSOCIATIONS — INGESTION
+' =========================================================
+Source "1" -- "0..*" Fichier : émet
+Fichier "1" *-- "1..*" Feuille : contient
+Feuille "1" -- "0..*" IngestionRun : exécute
+Fichier "1" -- "0..*" IngestionRun : exécute
+IngestionRun "1" *-- "0..*" LigneIngeree : produit
+LigneIngeree "0..*" -- "0..1" Localite : {rapprochement}
+LigneIngeree "0..*" -- "0..1" Ouvrage : {consolidation}
+
+' =========================================================
+' ASSOCIATIONS — MÉTIER
+' =========================================================
+Localite "1" -- "0..*" Ouvrage : implante
+TypeOuvrage "1" -- "0..*" Ouvrage : qualifie
+Localite "1" -- "0..*" CGPE : abrite
+Ouvrage "0..1" -- "0..*" CGPE : gère
+Source "1" -- "0..*" ProjetFinancement : finance_par
+Ouvrage "0..*" -- "0..*" ProjetFinancement : finance\n(via OuvrageProjet)
+OuvrageProjet "1" -- "1" Ouvrage
+OuvrageProjet "1" -- "1" ProjetFinancement
+
+' =========================================================
+' NOTES DE CONCEPTION
+' =========================================================
+note top of Fichier
+  hash_sha256 : **PAS UNIQUE**.
+  Un même fichier peut être réingéré
+  pour des feuilles différentes.
+  Détection de réingestion gérée
+  côté applicatif (colonne est_reingestion).
+end note
+
+note top of Ouvrage
+  code_ouvrage : **nullable, non unique**.
+  Aucun identifiant métier stable
+  fourni par les sources.
+  PK réelle = id_ouvrage (surrogate).
+end note
+
+note bottom of LigneIngeree
+  UNIQUE (id_run, num_ligne_source)
+  et non (id_feuille, num_ligne_source)
+  → permet plusieurs runs sur la même feuille.
+
+  donnees_brutes jsonb : conserve la ligne
+  Excel originale pour extensibilité
+  (nouveaux bailleurs, colonnes imprévues).
+end note
+
+note bottom of IngestionRun
+  Paramètres d'exécution :
+  - mode = complet / echantillon / plage
+  - limite_lignes, ligne_debut, ligne_fin
+  Permet à l'utilisateur de choisir
+  combien de lignes/feuilles ingérer.
+end note
+
+note right of RefGeoAdmin
+  Table **auto-référencée** :
+  - district : parent_id NULL
+  - autres : parent_id NOT NULL
+  - type_localite uniquement si niveau=localite
+  Évite 5 tables séparées, extensible
+  (ex. ajout d'un niveau "canton").
+end note
+
+note bottom of Localite
+  metadata jsonb : attributs complémentaires
+  non mappés concernant la localité
+  (population, existence d'école, habitat…).
+  Convention : docs/metadata_conventions.md.
+  Source brute : ligne_ingeree.donnees_brutes.
+end note
+
+note bottom of Ouvrage
+  metadata jsonb : attributs complémentaires
+  non mappés (ex. profondeur_forage_m,
+  nom_prestataire).
+  Convention : docs/metadata_conventions.md.
+  Source brute : ligne_ingeree.donnees_brutes.
+end note
+
+note bottom of CGPE
+  metadata jsonb : idem Localite / Ouvrage.
+end note
+
+note bottom of VPointsParFichier
+  Alimente le **sélecteur de fichier**
+  de l'UI carto (vue satellite).
+  Filtre : WHERE id_fichier = :id.
+end note
+
+note bottom of VPointsConsolides
+  Alimente l'option **"Tous"**
+  de l'UI carto (points dédoublonnés).
+end note
+
+' =========================================================
+' EXTENSIONS POSTGRESQL RETENUES
+' =========================================================
+note as N_EXT
+  **Extensions PostgreSQL retenues**
+  - postgis (géométrie)
+  - fuzzystrmatch (levenshtein, soundex)
+  - unaccent (normalisation accents)
+  - pg_trgm (recherche floue rapide)
+
+  postgis_topology : **NON retenu** (MVP)
+end note
+
+@enduml

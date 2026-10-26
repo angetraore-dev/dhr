@@ -1,0 +1,214 @@
+@startuml MCDR_DHR
+!theme plain
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam shadowing false
+hide empty attributes
+hide empty methods
+
+title MCDR — Modèle Conceptuel de Données Raffiné\nDHR — Centralisation des ouvrages hydrauliques ruraux
+
+' ===================== RÉFÉRENTIELS =====================
+package "Référentiels" {
+
+    entity "Source" as SOURCE {
+        * id_source
+        --
+        nom
+        type_source
+        actif
+    }
+
+    entity "TypeOuvrage" as TYPE_OUVRAGE {
+        * id_type_ouvrage
+        --
+        code
+        libelle
+        actif
+    }
+
+    entity "RefGeoAdmin" as REF_GEO {
+        * id_geo
+        --
+        niveau
+        nom
+        code_officiel
+        type_localite
+    }
+
+    entity "Localite" as LOCALITE {
+        * id_localite
+        --
+        nom_usage
+        latitude_centre
+        longitude_centre
+        geom_centre
+    }
+
+    entity "LocaliteAlias" as ALIAS {
+        * id_alias
+        --
+        alias
+        source_alias
+    }
+}
+
+' ===================== INGESTION =====================
+package "Ingestion" {
+
+    entity "Fichier" as FICHIER {
+        * id_fichier
+        --
+        nom_fichier_original
+        chemin_stockage
+        hash_sha256
+        date_reception
+        statut
+        est_reingestion
+    }
+
+    entity "Feuille" as FEUILLE {
+        * id_feuille
+        --
+        nom_feuille
+        index_feuille
+        type_contenu
+        statut_ingestion
+    }
+
+    entity "IngestionRun" as RUN {
+        * id_run
+        --
+        mode
+        limite_lignes
+        ligne_debut
+        ligne_fin
+        nb_lignes_ingerees
+        statut
+        started_at
+        finished_at
+    }
+
+    entity "LigneIngeree" as LIGNE {
+        * id_ligne
+        --
+        num_ligne_source
+        donnees_brutes
+        latitude_decimal
+        longitude_decimal
+        geom
+        type_ouvrage_brut
+        statut_qualite
+        message_qualite
+    }
+}
+
+' ===================== MÉTIER CONSOLIDÉ =====================
+package "Métier (consolidé)" {
+
+    entity "Ouvrage" as OUVRAGE {
+        * id_ouvrage
+        --
+        code_ouvrage
+        etat
+        annee_realisation
+        latitude_decimal
+        longitude_decimal
+        geom
+    }
+
+    entity "CGPE" as CGPE {
+        * id_cgpe
+        --
+        existe
+        date_creation
+        statut
+        nb_membres
+    }
+
+    entity "ProjetFinancement" as PROJET {
+        * id_projet
+        --
+        nom_projet
+        annee
+        type_financement
+        montant
+        devise
+    }
+
+    entity "OuvrageProjet" as OUVRAGE_PROJET {
+        * id_ouvrage
+        * id_projet
+        --
+        role_financement
+    }
+}
+
+' ===================== RELATIONS =====================
+
+' -- Référentiels
+REF_GEO ||--o{ REF_GEO : "parent > enfant\n(hiérarchie district→région→\ndépartement→sous-préf→localité)"
+REF_GEO ||--|| LOCALITE : "référence\n(niveau=localite)"
+LOCALITE ||--o{ ALIAS : "possède"
+
+' -- Ingestion
+SOURCE ||--o{ FICHIER : "émet"
+FICHIER ||--|{ FEUILLE : "contient"
+FICHIER ||--o{ RUN : "exécute"
+FEUILLE ||--o{ RUN : "exécute sur"
+RUN ||--o{ LIGNE : "produit"
+LIGNE }o--o| LOCALITE : "rapprochée à"
+LIGNE }o--o| OUVRAGE : "consolidée en"
+
+' -- Métier
+LOCALITE ||--o{ OUVRAGE : "implante"
+TYPE_OUVRAGE ||--o{ OUVRAGE : "qualifie"
+LOCALITE ||--o{ CGPE : "abrite"
+OUVRAGE |o--o{ CGPE : "géré par"
+SOURCE ||--o{ PROJET : "finance par"
+OUVRAGE ||--o{ OUVRAGE_PROJET : "financé via"
+PROJET ||--o{ OUVRAGE_PROJET : "finance"
+
+' ===================== NOTES MÉTIER =====================
+note top of REF_GEO
+  Hiérarchie administrative unique.
+  Chaque localité a exactement
+  un parent de niveau supérieur.
+end note
+
+note top of FICHIER
+  Un fichier peut être réingéré
+  (hash non unique) pour traiter
+  d'autres feuilles.
+end note
+
+note bottom of RUN
+  Paramètres choisis par l'utilisateur :
+  - mode (complet / échantillon / plage)
+  - limite_lignes, ligne_debut, ligne_fin
+  → permet d'ingérer partiellement
+    un fichier volumineux.
+end note
+
+note bottom of LIGNE
+  Conserve la ligne Excel brute (jsonb)
+  + champs normalisés extraits.
+  Statut qualité : ok / localite_non_resolue /
+  geom_invalide / type_ouvrage_inconnu /
+  rejete / doublon_suspect.
+end note
+
+note top of OUVRAGE
+  code_ouvrage : optionnel, non unique.
+  Pas d'identifiant métier stable fourni
+  par les sources → surrogate id_ouvrage.
+end note
+
+note bottom of OUVRAGE_PROJET
+  Association N..N entre Ouvrage et Projet.
+  Porte role_financement
+  (principal / co_financement)
+  → gère le co-financement État + bailleur.
+end note
+
+@enduml

@@ -1,0 +1,9 @@
+/* Tailwind sera configuré en Phase 5. Pour l'instant, reset minimal. */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+body {
+    margin: 0;
+    background: #f9fafb;
+    color: #111827;
+}

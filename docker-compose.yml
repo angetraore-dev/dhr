@@ -1,0 +1,132 @@
+# =====================================================================
+# docker-compose.yml — Projet DHR
+# Postgres/PostGIS + Back FastAPI + Front React/Vite
+# =====================================================================
+# Usage :
+#   docker compose up -d --build          # démarre tout
+#   docker compose logs -f backend        # logs du back
+#   docker compose exec db psql -U dhr -d dhr   # accès psql
+#   docker compose down -v                # arrête et supprime les volumes
+# =====================================================================
+
+name: dhr
+
+services:
+
+  # -------------------------------------------------------------------
+  # Base de données : PostgreSQL 16 + PostGIS 3.4
+  # -------------------------------------------------------------------
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: dhr_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-dhr}
+      POSTGRES_USER:     ${POSTGRES_USER:-dhr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dhr_dev_password}
+      # Encodage et locale
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: ${TZ:-Africa/Abidjan}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      # Init : joue schema.sql au premier démarrage (base vide)
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dhr} -d ${POSTGRES_DB:-dhr}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - dhr_net
+
+  # -------------------------------------------------------------------
+  # Back-end : FastAPI (Python 3.12)
+  # -------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dhr_backend
+    restart: unless-stopped
+    environment:
+      # DB
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-dhr}:${POSTGRES_PASSWORD:-dhr_dev_password}@db:5432/${POSTGRES_DB:-dhr}
+      # Auth
+      API_KEY_READ:   ${API_KEY_READ:-dhr_dev_read_key_change_me}
+      JWT_SECRET:     ${JWT_SECRET:-change_me_in_production}
+      JWT_ALGORITHM:  HS256
+      JWT_EXPIRE_MIN: ${JWT_EXPIRE_MIN:-60}
+      # Export
+      MAX_EXPORT_ROWS: ${MAX_EXPORT_ROWS:-100000}
+      # Divers
+      TZ: ${TZ:-Africa/Abidjan}
+      ENV: ${ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Hot-reload en dev : monte le code
+      - ./backend/app:/app/app:ro
+      # Dossier pour stocker les fichiers bruts uploadés
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - dhr_net
+
+  # -------------------------------------------------------------------
+  # Front-end : React + Vite (Node 20)
+  # -------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: dhr_frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/v1}
+      VITE_API_KEY: ${API_KEY_READ:-dhr_dev_read_key_change_me}
+      TZ: ${TZ:-Africa/Abidjan}
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      # Hot-reload Vite en dev
+      - ./frontend/src:/app/src:ro
+      - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/vite.config.ts:/app/vite.config.ts:ro
+      # node_modules isolé (pas de conflit host/container)
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - dhr_net
+
+# =====================================================================
+# Volumes nommés (persistants)
+# =====================================================================
+volumes:
+  db_data:
+    name: dhr_db_data
+  uploads_data:
+    name: dhr_uploads
+  frontend_node_modules:
+    name: dhr_frontend_node_modules
+
+# =====================================================================
+# Réseau interne
+# =====================================================================
+networks:
+  dhr_net:
+    name: dhr_net
+    driver: bridge

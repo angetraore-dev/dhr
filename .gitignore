@@ -1,0 +1,65 @@
+# =====================================================================
+# .gitignore — Projet DHR
+# =====================================================================
+
+# --- Secrets ---
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Node / Front ---
+node_modules/
+dist/
+.vite/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Docker ---
+*.pid
+docker-compose.override.yml
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Données ---
+uploads/
+*.xlsx
+*.xls
+*.csv
+!docs/**/*.csv
+!backend/tests/fixtures/**/*.xlsx
+
+# --- Logs ---
+logs/
+*.log
