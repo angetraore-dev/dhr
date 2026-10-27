@@ -7,7 +7,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import ORJSONResponse as _ORJSONResponse
 
 from app import __version__
 from app.config import get_settings
@@ -22,13 +22,17 @@ from app.routers import (
     referentiels,
 )
 
+class ORJSONResponse(_ORJSONResponse):
+    """ORJSONResponse avec charset=utf-8 explicite."""
+
+    media_type = "application/json; charset=utf-8"
+
 settings = get_settings()
 logging.basicConfig(
     level=settings.log_level.upper(),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 logger = logging.getLogger("dhr")
-
 
 app = FastAPI(
     title="API DHR",

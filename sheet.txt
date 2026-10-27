@@ -1,40 +1,44 @@
-docker compose logs --tail 20 backend
-dhr_backend  | INFO:     Started server process [10]
-dhr_backend  | INFO:     Waiting for application startup.
-dhr_backend  | 2026-10-27 15:26:56,924 INFO dhr Démarrage API DHR v0.1.0 (env=development)
-dhr_backend  | INFO:     Application startup complete.
-dhr_backend  | INFO:     127.0.0.1:47330 - "GET /health HTTP/1.1" 200 OK
-dhr_backend  | INFO:     172.18.0.1:35318 - "GET /fichiers HTTP/1.1" 404 Not Found
-dhr_backend  | INFO:     172.18.0.1:41896 - "GET /favicon.ico HTTP/1.1" 404 Not Found
-dhr_backend  | INFO:     127.0.0.1:47642 - "GET /health HTTP/1.1" 200 OK
-dhr_backend  | INFO:     172.18.0.1:41908 - "GET /api/v1/fichiers HTTP/1.1" 404 Not Found
-dhr_backend  | INFO:     172.18.0.1:41910 - "GET /favicon.ico HTTP/1.1" 404 Not Found
-dhr_backend  | INFO:     127.0.0.1:52888 - "GET /health HTTP/1.1" 200 OK
-dhr_backend  | INFO:     172.18.0.1:41908 - "GET /docs/fichiers HTTP/1.1" 404 Not Found
-dhr_backend  | INFO:     172.18.0.1:41910 - "GET /favicon.ico HTTP/1.1" 404 Not Found
-dhr_backend  | INFO:     172.18.0.1:57576 - "GET /docs HTTP/1.1" 200 OK
-dhr_backend  | INFO:     172.18.0.1:57576 - "GET /openapi.json HTTP/1.1" 200 OK
-dhr_backend  | INFO:     127.0.0.1:41892 - "GET /health HTTP/1.1" 200 OK
-dhr_backend  | INFO:     172.18.0.1:50118 - "GET /openapi.json HTTP/1.1" 200 OK
-dhr_backend  | INFO:     172.18.0.1:50134 - "GET /favicon.ico HTTP/1.1" 404 Not Found
-dhr_backend  | INFO:     127.0.0.1:52068 - "GET /health HTTP/1.1" 200 OK
-dhr_backend  | INFO:     127.0.0.1:42392 - "GET /health HTTP/1.1" 200 OK
+curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/ref-geo
+{"data":[],"pagination":{"offset":0,"limit":100,"total":0}}
 
-StatusCode        : 200
-StatusDescription : OK
-Content           : {"status":"ok","db":true,"version":"0.1.0","env":"development"}
-RawContent        : HTTP/1.1 200 OK
-                    Content-Length: 63
-                    Content-Type: application/json
-                    Date: Tue, 27 Oct 2026 15:29:07 GMT
-                    Server: uvicorn
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/ref-geo/1/chemin
+HTTP/1.1 404 Not Found
+date: Tue, 27 Oct 2026 15:52:41 GMT
+server: uvicorn
+content-length: 40
+content-type: application/json
 
-                    {"status":"ok","db":true,"version":"0.1.0","env":"development"}
-Forms             : {}
-Headers           : {[Content-Length, 63], [Content-Type, application/json], [Date, Tue, 27 Oct 2026 15:29:07 GMT], [Server,
-                    uvicorn]}
-Images            : {}
-InputFields       : {}
-Links             : {}
-ParsedHtml        : mshtml.HTMLDocumentClass
-RawContentLength  : 63
+{"detail":"ref_geo_admin 1 introuvable"}
+
+ curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/localites
+{"data":[],"pagination":{"offset":0,"limit":100,"total":0}}
+
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/localites/1
+HTTP/1.1 404 Not Found
+date: Tue, 27 Oct 2026 15:53:25 GMT
+server: uvicorn
+content-length: 36
+content-type: application/json
+
+{"detail":"Localité 1 introuvable"}
+
+
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/fichiers/1
+HTTP/1.1 404 Not Found
+date: Tue, 27 Oct 2026 15:53:54 GMT
+server: uvicorn
+content-length: 34
+content-type: application/json
+
+{"detail":"Fichier 1 introuvable"}
+
+curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/fichiers/1/feuilles
+HTTP/1.1 404 Not Found
+date: Tue, 27 Oct 2026 15:54:10 GMT
+server: uvicorn
+content-length: 34
+content-type: application/json
+
+{"detail":"Fichier 1 introuvable"}
+
+
