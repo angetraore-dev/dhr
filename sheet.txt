@@ -1,44 +1,74 @@
-curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/ref-geo
-{"data":[],"pagination":{"offset":0,"limit":100,"total":0}}
+Il n'y a plus d'erreurs:
+docker compose exec backend python -c "from app.main import app; import json; print(json.dumps(list(app.openapi()['paths'].keys()), indent=2))"
+[
+  "/",
+  "/health",
+  "/v1/sources",
+  "/v1/types-ouvrage",
+  "/v1/ref-geo",
+  "/v1/ref-geo/{id}/chemin",
+  "/v1/localites",
+  "/v1/localites/{id}",
+  "/v1/fichiers",
+  "/v1/fichiers/{id}",
+  "/v1/fichiers/{id}/feuilles",
+  "/v1/ouvrages",
+  "/v1/ouvrages/{id}",
+  "/v1/cgpe/{id}",
+  "/v1/carto/fichiers/{id_fichier}/points",
+  "/v1/carto/tous/points",
+  "/v1/carto/fichiers/{id_fichier}/points.geojson",
+  "/v1/qualite/fichiers/{id}"
+]
 
-PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/ref-geo/1/chemin
+
+PS C:\Users\hp\PhpstormProjects\dhr> docker compose exec backend python -c "from app.main import app; print('OK')"
+OK
+
+PS C:\Users\hp\PhpstormProjects\dhr> $apiKey = "dhr_dev_read_key_change_me"
+PS C:\Users\hp\PhpstormProjects\dhr>
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/ouvrages
+{"data":[],"pagination":{"limit":100,"next_cursor":null,"has_more":false}}
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/ouvrages/1
 HTTP/1.1 404 Not Found
-date: Tue, 27 Oct 2026 15:52:41 GMT
+date: Tue, 27 Oct 2026 16:33:21 GMT
 server: uvicorn
-content-length: 40
+content-length: 34
 content-type: application/json
 
-{"detail":"ref_geo_admin 1 introuvable"}
-
- curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/localites
-{"data":[],"pagination":{"offset":0,"limit":100,"total":0}}
-
-PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/localites/1
+{"detail":"Ouvrage 1 introuvable"}
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/cgpe/1
 HTTP/1.1 404 Not Found
-date: Tue, 27 Oct 2026 15:53:25 GMT
+date: Tue, 27 Oct 2026 16:33:21 GMT
 server: uvicorn
-content-length: 36
+content-length: 31
 content-type: application/json
 
-{"detail":"Localité 1 introuvable"}
-
-
-PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/fichiers/1
+{"detail":"CGPE 1 introuvable"}
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/carto/fichiers/1/points
 HTTP/1.1 404 Not Found
-date: Tue, 27 Oct 2026 15:53:54 GMT
+date: Tue, 27 Oct 2026 16:33:21 GMT
 server: uvicorn
 content-length: 34
 content-type: application/json
 
 {"detail":"Fichier 1 introuvable"}
-
-curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/fichiers/1/feuilles
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/carto/tous/points
+{"type":"FeatureCollection","features":[],"meta":{"count":0}}
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/carto/fichiers/1/points.geojson
 HTTP/1.1 404 Not Found
-date: Tue, 27 Oct 2026 15:54:10 GMT
+date: Tue, 27 Oct 2026 16:33:22 GMT
 server: uvicorn
 content-length: 34
 content-type: application/json
 
 {"detail":"Fichier 1 introuvable"}
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/qualite/fichiers/1
+HTTP/1.1 404 Not Found
+date: Tue, 27 Oct 2026 16:33:23 GMT
+server: uvicorn
+content-length: 34
+content-type: application/json
 
-
+{"detail":"Fichier 1 introuvable"}
+PS C:\Users\hp\PhpstormProjects\dhr>

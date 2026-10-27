@@ -13,6 +13,7 @@ from app import __version__
 from app.config import get_settings
 from app.db import check_db
 
+
 # Routers
 from app.routers import (
     carto,
@@ -21,6 +22,7 @@ from app.routers import (
     qualite,
     referentiels,
 )
+
 
 class ORJSONResponse(_ORJSONResponse):
     """ORJSONResponse avec charset=utf-8 explicite."""
