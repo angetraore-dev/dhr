@@ -63,3 +63,7 @@ uploads/
 # --- Logs ---
 logs/
 *.log
+# Sauvegardes locales
+*.bak
+backend/alembic/env.py
+backend/alembic/versions/a3187e43649b_initial_schema.py.bak
