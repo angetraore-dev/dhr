@@ -1,10 +1,13 @@
 
 ---
 
+## `docs/HANDOFF.md` — version complète
+
+
 # Handoff — Projet DHR
 
 **Date** : 2026-10-27
-**Version** : 2.0 (Phase 1-2 terminées, Phase 3 démarrée)
+**Version** : 2.1 (Phase 1-2-3 terminées)
 **Objet** : Centralisation des ouvrages hydrauliques ruraux pour la Direction de l'Hydraulique Rurale (DHR)
 
 ---
@@ -21,28 +24,25 @@ Le projet est en phase MVP : **lecture + ingestion + carto + export**. L'écritu
 
 ### ✅ Terminé
 
-| Phase                                   | Contenu                                                                                        | Statut |
-|-----------------------------------------|------------------------------------------------------------------------------------------------|--------|
-| **Conception**                          | MCDR, MLDR, diagramme UML, `schema.sql`, `openapi.yaml`, conventions metadata                  | ✅      |
-| **Phase 1 — Infrastructure**            | Docker Compose (Postgres/PostGIS + FastAPI + Vite), config, db, entrypoint                     | ✅      |
-| **Phase 2 — Modèles + migration**       | 13 tables SQLAlchemy, migration Alembic complétée, extensions, fonctions, triggers, vues, seed | ✅      |
-| **Phase 3.1 — Schémas Pydantic + auth** | `schemas/`, `auth.py`, `deps.py`, `main.py` mis à jour                                         | ✅      |
-
-### 🔄 En cours
-
-| Phase                                              | Contenu                                                         | Statut       |
-|----------------------------------------------------|-----------------------------------------------------------------|--------------|
-| **Phase 3.2 — Routers référentiels + fichiers**    | `routers/referentiels.py`, `routers/fichiers.py`                | ⏳ à produire |
-| **Phase 3.3 — Routers carto + ouvrages + qualité** | `routers/carto.py`, `routers/ouvrages.py`, `routers/qualite.py` | ⏳ à produire |
+| Phase                             | Contenu                                                                                         | Statut |
+|-----------------------------------|-------------------------------------------------------------------------------------------------|--------|
+| **Conception**                    | MCDR, MLDR, diagramme UML, `schema.sql`, `openapi.yaml`, conventions metadata                   | ✅      |
+| **Phase 1 — Infrastructure**      | Docker Compose (Postgres/PostGIS + FastAPI + Vite), config, db, entrypoint                      | ✅      |
+| **Phase 2 — Modèles + migration** | 13 tables SQLAlchemy, migration Alembic complétée, extensions, fonctions, triggers, vues, seed  | ✅      |
+| **Phase 3 — API lecture**         | 18 endpoints (référentiels, fichiers, ouvrages, CGPE, carto, qualité), auth API key, pagination | ✅      |
 
 ### ⏳ À faire
 
-| Phase                   | Contenu                                                     |
-|-------------------------|-------------------------------------------------------------|
-| **Phase 4 — Ingestion** | Service de parsing Excel multi-feuilles, upload, runs       |
-| **Phase 5 — Export**    | Export Excel/CSV streamé                                    |
-| **Phase 6 — Front**     | React + Vite + Leaflet + pages Fichiers/Carte/Liste/Qualité |
-| **Phase 7 — Tests**     | Tests d'API, tests d'ingestion, tests d'export              |
+| Phase                   | Contenu                                                             |
+|-------------------------|---------------------------------------------------------------------|
+| **Phase 4 — Ingestion** | Service de parsing Excel multi-feuilles, upload, runs (5 endpoints) |
+| **Phase 5 — Export**    | Export Excel/CSV streamé (2 endpoints)                              |
+| **Phase 6 — Front**     | React + Vite + Leaflet + pages Fichiers/Carte/Liste/Qualité         |
+| **Phase 7 — Tests**     | Tests d'API, tests d'ingestion, tests d'export                      |
+
+**Ordre recommandé** : Phase 5 (Export) → Phase 4 (Ingestion) → Phase 6 (Front) → Phase 7 (Tests).
+
+L'export est plus simple que l'ingestion (pas de parsing, juste lecture SQL + streaming). Il permet une victoire rapide et peut être testé avec les données seedées.
 
 ---
 
@@ -94,33 +94,38 @@ dhr/
 │   │       └── a3187e43649b_initial_schema.py   (complétée manuellement)
 │   └── app/
 │       ├── __init__.py
-│       ├── main.py                   (avec routers branchés)
+│       ├── main.py                   (ORJSONResponse utf-8 + 5 routers)
 │       ├── config.py                 (Settings Pydantic)
 │       ├── db.py                     (engine, session, get_db, check_db)
 │       ├── models.py                 (13 tables SQLAlchemy/GeoAlchemy2)
 │       ├── auth.py                   (API key + JWT)
-│       ├── deps.py                   (pagination, filtres)
+│       ├── deps.py                   (OffsetPagination, CursorPagination, OuvrageFilters)
 │       ├── schemas/
 │       │   ├── __init__.py
-│       │   ├── common.py
-│       │   ├── geo.py
-│       │   ├── referentiels.py
-│       │   ├── fichiers.py
-│       │   ├── ingestion.py
-│       │   └── ouvrages.py
+│       │   ├── common.py             (Problem, Pagination)
+│       │   ├── geo.py                (GeoJSONPoint, Feature)
+│       │   ├── referentiels.py       (Source, TypeOuvrage, RefGeoAdmin, Localite)
+│       │   ├── fichiers.py           (Fichier, Feuille)
+│       │   ├── ingestion.py          (IngestionRun, LigneIngeree, Run*)
+│       │   └── ouvrages.py           (Ouvrage, CGPE, QualiteFichier)
 │       └── routers/
-│           └── __init__.py           (vide pour l'instant)
+│           ├── __init__.py
+│           ├── referentiels.py       (6 endpoints)
+│           ├── fichiers.py           (3 endpoints)
+│           ├── ouvrages.py           (2 endpoints)
+│           ├── carto.py              (3 endpoints GeoJSON)
+│           └── qualite.py            (1 endpoint)
 └── frontend/
-├── Dockerfile
-├── package.json
-├── vite.config.ts
-├── tsconfig.json
-├── index.html
-└── src/
-├── main.tsx
-├── App.tsx
-├── index.css
-└── vite-env.d.ts
+    ├── Dockerfile
+    ├── package.json
+    ├── vite.config.ts
+    ├── tsconfig.json
+    ├── index.html
+    └── src/
+        ├── main.tsx
+        ├── App.tsx
+        ├── index.css
+        └── vite-env.d.ts
 ```
 
 ### 3.3 Modèle de données (13 tables)
@@ -160,6 +165,7 @@ dhr/
 | Pagination : offset (petites listes) / cursor (lignes, ouvrages) | Adapter au volume                           |
 | `bbox` GeoJSON calculé côté front                                | Alléger la réponse back                     |
 | Export Excel/CSV streamé                                         | Éviter le chargement complet en RAM         |
+| `Content-Type: application/json; charset=utf-8`                  | Fix encodage UTF-8 (PowerShell)             |
 
 ---
 
@@ -176,33 +182,35 @@ Base URL : `https://api.dhr.local/v1` (placeholder, à remplacer)
 
 ### 4.2 Endpoints
 
-| Méthode | Endpoint                              | Auth    | Statut       |
-|---------|---------------------------------------|---------|--------------|
-| GET     | `/sources`                            | API key | ⏳ à produire |
-| GET     | `/types-ouvrage`                      | API key | ⏳ à produire |
-| GET     | `/ref-geo`                            | API key | ⏳ à produire |
-| GET     | `/ref-geo/{id}/chemin`                | API key | ⏳ à produire |
-| GET     | `/localites`                          | API key | ⏳ à produire |
-| GET     | `/localites/{id}`                     | API key | ⏳ à produire |
-| GET     | `/fichiers`                           | API key | ⏳ à produire |
-| GET     | `/fichiers/{id}`                      | API key | ⏳ à produire |
-| POST    | `/fichiers`                           | JWT     | ⏳ Phase 4    |
-| GET     | `/fichiers/{id}/feuilles`             | API key | ⏳ à produire |
-| POST    | `/fichiers/{id}/runs`                 | JWT     | ⏳ Phase 4    |
-| GET     | `/fichiers/{id}/runs`                 | API key | ⏳ à produire |
-| GET     | `/runs/{id}`                          | API key | ⏳ à produire |
-| GET     | `/feuilles/{id}/lignes`               | API key | ⏳ à produire |
-| GET     | `/runs/{id}/lignes`                   | API key | ⏳ à produire |
-| GET     | `/lignes/{id}`                        | API key | ⏳ à produire |
-| GET     | `/ouvrages`                           | API key | ⏳ à produire |
-| GET     | `/ouvrages/{id}`                      | API key | ⏳ à produire |
-| GET     | `/ouvrages/export`                    | API key | ⏳ Phase 5    |
-| GET     | `/ouvrages/export.csv`                | API key | ⏳ Phase 5    |
-| GET     | `/cgpe/{id}`                          | API key | ⏳ à produire |
-| GET     | `/carto/fichiers/{id}/points`         | API key | ⏳ à produire |
-| GET     | `/carto/tous/points`                  | API key | ⏳ à produire |
-| GET     | `/carto/fichiers/{id}/points.geojson` | API key | ⏳ à produire |
-| GET     | `/qualite/fichiers/{id}`              | API key | ⏳ à produire |
+| Méthode | Endpoint                              | Auth    | Statut    |
+|---------|---------------------------------------|---------|-----------|
+| GET     | `/sources`                            | API key | ✅         |
+| GET     | `/types-ouvrage`                      | API key | ✅         |
+| GET     | `/ref-geo`                            | API key | ✅         |
+| GET     | `/ref-geo/{id}/chemin`                | API key | ✅         |
+| GET     | `/localites`                          | API key | ✅         |
+| GET     | `/localites/{id}`                     | API key | ✅         |
+| GET     | `/fichiers`                           | API key | ✅         |
+| GET     | `/fichiers/{id}`                      | API key | ✅         |
+| POST    | `/fichiers`                           | JWT     | ⏳ Phase 4 |
+| GET     | `/fichiers/{id}/feuilles`             | API key | ✅         |
+| POST    | `/fichiers/{id}/runs`                 | JWT     | ⏳ Phase 4 |
+| GET     | `/fichiers/{id}/runs`                 | API key | ⏳ Phase 4 |
+| GET     | `/runs/{id}`                          | API key | ⏳ Phase 4 |
+| GET     | `/feuilles/{id}/lignes`               | API key | ⏳ Phase 4 |
+| GET     | `/runs/{id}/lignes`                   | API key | ⏳ Phase 4 |
+| GET     | `/lignes/{id}`                        | API key | ⏳ Phase 4 |
+| GET     | `/ouvrages`                           | API key | ✅         |
+| GET     | `/ouvrages/{id}`                      | API key | ✅         |
+| GET     | `/ouvrages/export`                    | API key | ⏳ Phase 5 |
+| GET     | `/ouvrages/export.csv`                | API key | ⏳ Phase 5 |
+| GET     | `/cgpe/{id}`                          | API key | ✅         |
+| GET     | `/carto/fichiers/{id}/points`         | API key | ✅         |
+| GET     | `/carto/tous/points`                  | API key | ✅         |
+| GET     | `/carto/fichiers/{id}/points.geojson` | API key | ✅         |
+| GET     | `/qualite/fichiers/{id}`              | API key | ✅         |
+
+**18/25 endpoints opérationnels** (Phase 3 terminée). 7 restants : 5 pour l'ingestion (Phase 4), 2 pour l'export (Phase 5).
 
 Le détail complet des schémas de réponse est dans `docs/openapi.yaml`.
 
@@ -218,8 +226,7 @@ git clone <url> dhr
 cd dhr
 
 # 2. Copier le template d'env
-cp .env.example .env
-# (ou : Copy-Item .env.example .env sous PowerShell)
+Copy-Item .env.example .env
 
 # 3. (Optionnel) Générer un JWT_SECRET robuste
 # openssl rand -hex 32  → coller dans .env
@@ -231,7 +238,7 @@ docker compose up -d --build
 docker compose ps
 # Attendu : 3 services (db healthy, backend healthy, frontend running)
 
-curl http://localhost:8000/health
+curl.exe http://localhost:8000/health
 # Attendu : {"status":"ok","db":true,"version":"0.1.0","env":"development"}
 
 # 6. Swagger UI
@@ -286,7 +293,31 @@ docker compose exec backend alembic revision --autogenerate -m "description"
 docker compose exec backend alembic downgrade -1
 ```
 
-### 5.4 Générer un JWT pour tester l'écriture
+### 5.4 Tester l'API lecture
+
+```powershell
+$apiKey = "dhr_dev_read_key_change_me"
+
+# Sources (6 seedées)
+curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/sources
+
+# Types d'ouvrage (5 seedés)
+curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/types-ouvrage
+
+# Ouvrages (vide pour l'instant)
+curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/ouvrages
+
+# Carto (FeatureCollection vide)
+curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/carto/tous/points
+
+# Sans clé → 401
+curl.exe -i http://localhost:8000/v1/sources
+
+# Mauvaise clé → 401
+curl.exe -i -H "X-API-Key: mauvaise_cle" http://localhost:8000/v1/sources
+```
+
+### 5.5 Générer un JWT pour tester l'écriture (Phase 4+)
 
 ```powershell
 docker compose exec backend python -c "
@@ -298,41 +329,44 @@ print(create_access_token('test-user', 'admin'))
 Puis :
 
 ```powershell
-curl -H "Authorization: Bearer <jwt>" -X POST http://localhost:8000/v1/fichiers ...
+curl.exe -H "Authorization: Bearer <jwt>" -X POST http://localhost:8000/v1/fichiers ...
 ```
 
 ---
 
 ## 6. Points d'attention (pièges connus)
 
-| Piège                                                          | Solution                                                                        |
-|----------------------------------------------------------------|---------------------------------------------------------------------------------|
-| **Migration Alembic contient les `drop_table` PostGIS**        | Résolu : `env.py` filtre via `NOS_TABLES = set(Base.metadata.tables.keys())`    |
-| **`server_default="'{}'::jsonb"` crée un DEFAULT invalide**    | Utiliser `server_default=text("'{}'::jsonb")`                                   |
-| **`alembic upgrade head` au démarrage du backend**             | `entrypoint.sh` le fait automatiquement                                         |
-| **Le backend crash en boucle si migration pourrie**            | `docker compose logs backend` → identifier → supprimer la migration → régénérer |
-| **`include_schemas=False` ne suffit pas**                      | Filtre liste blanche `NOS_TABLES` obligatoire                                   |
-| **`localite.metadata_` (Python) vs `localite.metadata` (SQL)** | Pydantic utilise `from_attributes=True` + alias si besoin                       |
-| **`node_modules` conflit host/container**                      | Volume nommé `frontend_node_modules`                                            |
-| **Hot-reload Vite KO dans Docker**                             | `usePolling: true` dans `vite.config.ts`                                        |
-| **`postgis_topology` non activé**                              | Décision MVP : pas besoin de topologie                                          |
-| **Seed réexécuté à chaque `upgrade`**                          | `ON CONFLICT DO NOTHING`                                                        |
+| Piège                                                           | Solution                                                                        |
+|-----------------------------------------------------------------|---------------------------------------------------------------------------------|
+| **Migration Alembic contient les `drop_table` PostGIS**         | Résolu : `env.py` filtre via `NOS_TABLES = set(Base.metadata.tables.keys())`    |
+| **`server_default="'{}'::jsonb"` crée un DEFAULT invalide**     | Utiliser `server_default=text("'{}'::jsonb")`                                   |
+| **`alembic upgrade head` au démarrage du backend**              | `entrypoint.sh` le fait automatiquement                                         |
+| **Le backend crash en boucle si migration pourrie**             | `docker compose logs backend` → identifier → supprimer la migration → régénérer |
+| **`include_schemas=False` ne suffit pas**                       | Filtre liste blanche `NOS_TABLES` obligatoire                                   |
+| **Encodage UTF-8 mal interprété par PowerShell**                | `ORJSONResponse` avec `media_type = "application/json; charset=utf-8"`          |
+| **`operationId` dupliqué si une route appelle une autre route** | Extraire la logique dans une fonction non décorée (`_build_...`)                |
+| **`localite.metadata_` (Python) vs `localite.metadata` (SQL)**  | Accéder explicitement à `loc.metadata_` dans le router                          |
+| **`node_modules` conflit host/container**                       | Volume nommé `frontend_node_modules`                                            |
+| **Hot-reload Vite KO dans Docker**                              | `usePolling: true` dans `vite.config.ts`                                        |
+| **`postgis_topology` non activé**                               | Décision MVP : pas besoin de topologie                                          |
+| **Seed réexécuté à chaque `upgrade`**                           | `ON CONFLICT DO NOTHING`                                                        |
 
 ---
 
 ## 7. Dette technique / points ouverts
 
-| # | Point                                                    | Impact        | À traiter          |
-|---|----------------------------------------------------------|---------------|--------------------|
-| 1 | Déploiement prod (VPS interne vs cloud)                  | Infra         | V2                 |
-| 2 | Nom de domaine réel (`api.dhr.local` placeholder)        | Config        | Prod               |
-| 3 | Politique de rétention des fichiers bruts                | Stockage      | V2                 |
-| 4 | Gestion des utilisateurs (table `utilisateur` vs config) | Auth          | Config pour MVP    |
-| 5 | Règle de rapprochement des ouvrages (GPS + nom + année)  | Dédoublonnage | V2                 |
-| 6 | Valeur exacte de `MAX_EXPORT_ROWS`                       | Export        | 100 000 par défaut |
-| 7 | `localite.metadata_` → `metadata` (mapping Pydantic)     | Schémas       | À finaliser en 3.2 |
-| 8 | Rapprochement flou des localités (trigram + alias)       | Ingestion     | Phase 4            |
-| 9 | Tests unitaires et d'intégration                         | Qualité       | Phase 7            |
+| #  | Point                                                    | Impact        | À traiter             |
+|----|----------------------------------------------------------|---------------|-----------------------|
+| 1  | Déploiement prod (VPS interne vs cloud)                  | Infra         | V2                    |
+| 2  | Nom de domaine réel (`api.dhr.local` placeholder)        | Config        | Prod                  |
+| 3  | Politique de rétention des fichiers bruts                | Stockage      | V2                    |
+| 4  | Gestion des utilisateurs (table `utilisateur` vs config) | Auth          | Config pour MVP       |
+| 5  | Règle de rapprochement des ouvrages (GPS + nom + année)  | Dédoublonnage | V2                    |
+| 6  | Valeur exacte de `MAX_EXPORT_ROWS`                       | Export        | 100 000 par défaut    |
+| 7  | Rapprochement flou des localités (trigram + alias)       | Ingestion     | Phase 4               |
+| 8  | Tests unitaires et d'intégration                         | Qualité       | Phase 7               |
+| 9  | `Localite.geom_centre` non sérialisé en GeoJSON          | Schémas       | V2 (non bloquant)     |
+| 10 | `bbox` non inclus dans les réponses GeoJSON              | Carto         | Front (calcul client) |
 
 ---
 
@@ -344,30 +378,76 @@ curl -H "Authorization: Bearer <jwt>" -X POST http://localhost:8000/v1/fichiers 
 | 1.1     | 2026-10-23 | Ajout `metadata` sur `localite`, `ouvrage`, `cgpe`                                      |
 | 1.2     | 2026-10-26 | Ajout vue liste + export Excel/CSV (25 endpoints)                                       |
 | 2.0     | 2026-10-27 | Phase 1-2 terminées (infra + modèles + migration). Phase 3.1 terminée (schémas + auth). |
+| 2.1     | 2026-10-27 | Phase 3 terminée (18 endpoints de lecture opérationnels, auth API key, fix UTF-8).      |
 
 ---
 
 ## 9. Prochaine action immédiate
 
-**Phase 3.2 — Routers référentiels + fichiers** :
+**Phase 5 — Export Excel/CSV** (recommandée) ou **Phase 4 — Ingestion**.
 
-1. `backend/app/routers/__init__.py` (déjà créé vide)
-2. `backend/app/routers/referentiels.py` — 6 endpoints :
-    - `GET /sources`
-    - `GET /types-ouvrage`
-    - `GET /ref-geo`
-    - `GET /ref-geo/{id}/chemin`
-    - `GET /localites`
-    - `GET /localites/{id}`
-3. `backend/app/routers/fichiers.py` — 3 endpoints :
-    - `GET /fichiers`
-    - `GET /fichiers/{id}`
-    - `GET /fichiers/{id}/feuilles`
+### Phase 5 — Export (2-3 jours)
 
-**Critère de validation** : `http://localhost:8000/docs` affiche les 6 + 3 endpoints, et `curl -H "X-API-Key: ..." http://localhost:8000/v1/sources` retourne les 6 sources seedées.
+1. `backend/app/services/export.py` :
+    - `export_ouvrages_xlsx(filters, columns, include_metadata)` → `StreamingResponse`
+    - `export_ouvrages_csv(filters, columns, include_metadata)` → `StreamingResponse`
+    - Streaming via `openpyxl` (mode `write_only`) + `yield_per(5000)` SQLAlchemy
+    - Vérification de `MAX_EXPORT_ROWS` avant streaming (413 si dépassé)
+2. `routers/ouvrages.py` : ajout des 2 endpoints
+    - `GET /ouvrages/export`
+    - `GET /ouvrages/export.csv`
+
+**Critère de validation** : `curl -H "X-API-Key: ..." http://localhost:8000/v1/ouvrages/export -o test.xlsx` télécharge un fichier Excel valide (avec les 13 colonnes standard).
+
+### Phase 4 — Ingestion (5-7 jours)
+
+1. `backend/app/services/ingestion.py` :
+    - Détection des feuilles (`openpyxl`)
+    - Mapping des colonnes (normalisation)
+    - Extraction des colonnes non mappées → `metadata`
+    - Remplissage `donnees_brutes` (JSONB)
+    - Gestion des modes `complet` / `echantillon` / `plage`
+    - Mise à jour `statut_qualite`
+2. `backend/app/services/rapprochement.py` :
+    - Rapprochement localité (trigram + unaccent + alias)
+3. `routers/fichiers.py` : ajout `POST /fichiers` (upload)
+4. `routers/ingestion.py` : ajout `POST /fichiers/{id}/runs`, `GET /runs/{id}`, `GET /feuilles/{id}/lignes`, `GET /runs/{id}/lignes`, `GET /lignes/{id}`
+
+**Critère de validation** : upload d'un fichier Excel de test → feuilles détectées → run lancé → lignes ingérées → points visibles sur la carte (via `/carto/fichiers/{id}/points`).
 
 ---
 
 *Handoff rédigé le 2026-10-27. Toute modification du contrat d'API ou du schéma doit être répercutée dans les 5 livrables de conception (`mcdr.puml`, `mldr.md`, `mcd.puml`, `openapi.yaml`, `metadata_conventions.md`) avant implémentation.*
 
+---
 
+## Récapitulatif des modifications
+
+| Section | Avant                        | Après                                    |
+|---------|------------------------------|------------------------------------------|
+| En-tête | v2.0                         | v2.1                                     |
+| §2      | Phase 3.2/3.3 « à produire » | Phase 3 ✅ terminée                       |
+| §3.2    | `routers/__init__.py` seul   | 5 routers complets                       |
+| §3.4    | 12 décisions                 | 13 (ajout fix UTF-8)                     |
+| §4.2    | 25 endpoints « à produire »  | 18 ✅, 5 ⏳ Phase 4, 2 ⏳ Phase 5           |
+| §5.4    | « Générer un JWT »           | « Tester l'API lecture » (18 endpoints)  |
+| §5.5    | —                            | Nouveau (JWT Phase 4+)                   |
+| §6      | 10 pièges                    | 12 pièges (ajout encodage + operationId) |
+| §7      | 9 dettes                     | 10 dettes (ajout `geom_centre`, `bbox`)  |
+| §8      | v2.0                         | v2.1                                     |
+| §9      | Phase 3.2                    | Phase 4 ou 5 (avec critères)             |
+
+---
+
+## Question
+
+1. **Remplace `docs/HANDOFF.md`** par cette version.
+2. **Commit** :
+   ```powershell
+   git add docs/HANDOFF.md
+   git commit -m "docs: mise à jour handoff (Phase 3 terminée, v2.1)"
+   git push origin main
+   ```
+3. **On enchaîne sur Phase 5 (Export) ou Phase 4 (Ingestion) ?**
+
+Ma reco forte : **Phase 5 d'abord**. Tu auras une victoire rapide en 2-3 jours, testable avec les données seedées, avant d'attaquer le gros morceau qu'est l'ingestion.
