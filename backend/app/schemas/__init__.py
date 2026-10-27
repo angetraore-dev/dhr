@@ -1,0 +1,1 @@
+"""Schémas Pydantic — miroir des schémas OpenAPI."""

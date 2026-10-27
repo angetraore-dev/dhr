@@ -1,9 +1,7 @@
 """
 Point d'entrée FastAPI.
 
-Pour le MVP initial (Phase 1), seuls /health et / sont exposés.
-Les routers (référentiels, fichiers, ingestion, ouvrages, carto, qualité)
-seront ajoutés en Phase 2 (section 4.6).
+Phase 3 : ajout des routers + authentification API key.
 """
 import logging
 
@@ -15,7 +13,15 @@ from app import __version__
 from app.config import get_settings
 from app.db import check_db
 
-# --- Logging ---
+# Routers
+from app.routers import (
+    carto,
+    fichiers,
+    ouvrages,
+    qualite,
+    referentiels,
+)
+
 settings = get_settings()
 logging.basicConfig(
     level=settings.log_level.upper(),
@@ -24,7 +30,6 @@ logging.basicConfig(
 logger = logging.getLogger("dhr")
 
 
-# --- Application ---
 app = FastAPI(
     title="API DHR",
     version=__version__,
@@ -38,8 +43,6 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-
-# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -52,7 +55,6 @@ app.add_middleware(
 # --- Routes de base ---
 @app.get("/", tags=["meta"], summary="Racine")
 def root() -> dict:
-    """Retourne les informations de base de l'API."""
     return {
         "name": "API DHR",
         "version": __version__,
@@ -63,17 +65,9 @@ def root() -> dict:
 
 @app.get("/health", tags=["meta"], summary="Healthcheck")
 def health() -> dict:
-    """
-    Healthcheck utilisé par Docker Compose et le front.
-
-    Retourne :
-    - 200 + {"status": "ok", "db": true} si tout va bien
-    - 503 + {"status": "degraded", "db": false} si la DB ne répond pas
-    """
     db_ok = check_db()
-    status_code = 200 if db_ok else 503
     return ORJSONResponse(
-        status_code=status_code,
+        status_code=200 if db_ok else 503,
         content={
             "status": "ok" if db_ok else "degraded",
             "db": db_ok,
@@ -83,7 +77,14 @@ def health() -> dict:
     )
 
 
-# --- Démarrage ---
+# --- Routers v1 ---
+app.include_router(referentiels.router, prefix="/v1")
+app.include_router(fichiers.router, prefix="/v1")
+app.include_router(ouvrages.router, prefix="/v1")
+app.include_router(carto.router, prefix="/v1")
+app.include_router(qualite.router, prefix="/v1")
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     logger.info("Démarrage API DHR v%s (env=%s)", __version__, settings.env)

@@ -1,348 +1,373 @@
+
+---
+
 # Handoff — Projet DHR
 
-**Date** : 2026-10-26
+**Date** : 2026-10-27
+**Version** : 2.0 (Phase 1-2 terminées, Phase 3 démarrée)
 **Objet** : Centralisation des ouvrages hydrauliques ruraux pour la Direction de l'Hydraulique Rurale (DHR)
-**État** : Conception figée et documentée — prêt pour la production du socle technique
-**Version** : 1.2 (ajout vue liste + export Excel/CSV)
 
 ---
 
-## 1. Contexte en 3 phrases
+## 1. Contexte métier
 
-La DHR reçoit des fichiers Excel hétérogènes (ONEP, SODECI, UNICEF, BAD, LONACI, État) contenant des données sur les ouvrages hydrauliques ruraux, les CGPE et les financements. Elle veut centraliser ces données dans une base PostgreSQL/PostGIS et disposer d'une UI cartographique (vue satellite) permettant d'afficher les points d'un fichier donné ou tous les points consolidés, **ainsi qu'une vue liste détaillée exportable en Excel/CSV**. Le projet est en phase MVP : lecture + ingestion + carto + export. L'écriture manuelle et l'analytique avancée sont hors scope.
+La DHR reçoit des fichiers Excel hétérogènes (ONEP, SODECI, UNICEF, BAD, LONACI, État) contenant des données sur les ouvrages hydrauliques ruraux, les CGPE et les financements. Elle veut centraliser ces données dans une base PostgreSQL/PostGIS et disposer d'une UI cartographique (vue satellite) permettant d'afficher les points d'un fichier ou tous les points consolidés, ainsi qu'une vue liste exportable en Excel/CSV.
 
----
-
-## 2. Livrables produits (conception — ✅ terminés)
-
-| Fichier                        | Contenu                                                          | Statut |
-|--------------------------------|------------------------------------------------------------------|--------|
-| `docs/mcdr.puml`               | MCDR — vue métier (entités, relations, cardinalités)             | ✅      |
-| `docs/mldr.md`                 | MLDR — vue technique (tables, colonnes, contraintes, index) v1.2 | ✅      |
-| `docs/mcd.puml`                | Diagramme de classes UML complet v1.1                            | ✅      |
-| `sql/schema.sql`               | DDL PostgreSQL/PostGIS exécutable, idempotent                    | ✅      |
-| `docs/openapi.yaml`            | Contrat d'API OpenAPI 3.1 — **25 endpoints** v1.2                | ✅      |
-| `docs/metadata_conventions.md` | Conventions des métadonnées non mappées                          | ✅      |
-
-**Décisions de conception figées** :
-- `hash_sha256` non unique (réingestion légitime)
-- `code_ouvrage` nullable, non unique (pas d'identifiant métier stable)
-- `UNIQUE (id_run, num_ligne_source)` (plusieurs runs par feuille)
-- `metadata jsonb` sur `localite`, `ouvrage`, `cgpe`
-- `donnees_brutes jsonb` sur `ligne_ingeree` (source brute)
-- Colonne `geom` générée via `geom_from_latlon(lat, lon)` (STRICT, rejette bornes et `(0,0)`)
-- Extensions : `postgis`, `fuzzystrmatch`, `unaccent`, `pg_trgm` — **pas** `postgis_topology`
-- **Export Excel/CSV streamé** (pas de chargement complet en RAM), limite `MAX_EXPORT_ROWS=100000`
+Le projet est en phase MVP : **lecture + ingestion + carto + export**. L'écriture manuelle et l'analytique avancée sont hors scope.
 
 ---
 
-## 3. Décisions d'architecture figées
+## 2. État d'avancement
 
-### Back-end
-- **Python 3.12 + FastAPI** (code-first, OpenAPI auto-générée)
-- **SQLAlchemy 2.x + GeoAlchemy2** (ORM)
-- **Pydantic v2** (validation, schémas)
-- **Alembic** (migrations)
-- **openpyxl** (parsing Excel multi-feuilles + export Excel write_only)
-- **python-jose + passlib** (JWT HS256)
-- **Auth** : API key (`X-API-Key`) pour lecture, JWT Bearer pour écriture
+### ✅ Terminé
 
-### Front-end
-- **React 18 + Vite + TypeScript**
-- **shadcn/ui** (Radix + Tailwind)
-- **Leaflet 1.9 + Esri World Imagery** (carte satellite)
-- **TanStack Query** (appels API) + **TanStack Table** (vue liste)
-- **React Router v6**
+| Phase                                   | Contenu                                                                                        | Statut |
+|-----------------------------------------|------------------------------------------------------------------------------------------------|--------|
+| **Conception**                          | MCDR, MLDR, diagramme UML, `schema.sql`, `openapi.yaml`, conventions metadata                  | ✅      |
+| **Phase 1 — Infrastructure**            | Docker Compose (Postgres/PostGIS + FastAPI + Vite), config, db, entrypoint                     | ✅      |
+| **Phase 2 — Modèles + migration**       | 13 tables SQLAlchemy, migration Alembic complétée, extensions, fonctions, triggers, vues, seed | ✅      |
+| **Phase 3.1 — Schémas Pydantic + auth** | `schemas/`, `auth.py`, `deps.py`, `main.py` mis à jour                                         | ✅      |
 
-### Base de données
-- **PostgreSQL 16 + PostGIS 3.4**
+### 🔄 En cours
 
-### Déploiement
-- **Docker Compose** (dev)
-- Prod : à trancher avec la DHR (hors scope MVP)
+| Phase                                              | Contenu                                                         | Statut       |
+|----------------------------------------------------|-----------------------------------------------------------------|--------------|
+| **Phase 3.2 — Routers référentiels + fichiers**    | `routers/referentiels.py`, `routers/fichiers.py`                | ⏳ à produire |
+| **Phase 3.3 — Routers carto + ouvrages + qualité** | `routers/carto.py`, `routers/ouvrages.py`, `routers/qualite.py` | ⏳ à produire |
 
-### Contrat d'API — décisions
-| # | Point          | Décision                                                                                 |
-|---|----------------|------------------------------------------------------------------------------------------|
-| 1 | Auth           | API key (lecture) + JWT (écriture)                                                       |
-| 2 | Filtrage carto | `id_feuille` et `id_run`                                                                 |
-| 3 | Vue « Tous »   | Filtre sur `ouvrage` consolidé                                                           |
-| 4 | Upload         | Synchrone (201) ; run asynchrone (202)                                                   |
-| 5 | Pagination     | Offset (petites listes) / cursor (lignes, ouvrages)                                      |
-| 6 | `bbox` GeoJSON | Côté front                                                                               |
-| 7 | `poll_url`     | Conservé dans 202                                                                        |
-| 8 | Export         | **Excel + CSV**, streamé, filtres identiques à `GET /ouvrages`, limite `MAX_EXPORT_ROWS` |
+### ⏳ À faire
+
+| Phase                   | Contenu                                                     |
+|-------------------------|-------------------------------------------------------------|
+| **Phase 4 — Ingestion** | Service de parsing Excel multi-feuilles, upload, runs       |
+| **Phase 5 — Export**    | Export Excel/CSV streamé                                    |
+| **Phase 6 — Front**     | React + Vite + Leaflet + pages Fichiers/Carte/Liste/Qualité |
+| **Phase 7 — Tests**     | Tests d'API, tests d'ingestion, tests d'export              |
 
 ---
 
-## 4. TODO — Production du socle technique
+## 3. Architecture
 
-### 4.1 Infrastructure
+### 3.1 Stack
 
-- [ ] **`docker-compose.yml`** — Postgres/PostGIS + back + front, healthchecks, volumes persistants
-- [ ] **`backend/Dockerfile`** — image Python 3.12 + dépendances
-- [ ] **`frontend/Dockerfile`** — image Node 20 + build Vite
-- [ ] **`.env.example`** — variables d'environnement (DB, JWT secret, API keys, `MAX_EXPORT_ROWS`)
-- [ ] **`.gitignore`** — Python, Node, Docker, IDE
+| Couche          | Technologie                  | Version      |
+|-----------------|------------------------------|--------------|
+| Base de données | PostgreSQL + PostGIS         | 16 + 3.4     |
+| Back-end        | Python + FastAPI             | 3.12 + 0.115 |
+| ORM             | SQLAlchemy + GeoAlchemy2     | 2.0 + 0.16   |
+| Validation      | Pydantic                     | 2.9          |
+| Migrations      | Alembic                      | 1.13         |
+| Parsing Excel   | openpyxl                     | 3.1          |
+| Auth            | python-jose (JWT) + API key  | —            |
+| Front-end       | React + Vite + TypeScript    | 18 + 5.4     |
+| UI              | Tailwind + shadcn/ui         | 3.4          |
+| Carto           | Leaflet + Esri World Imagery | 1.9          |
+| État API        | TanStack Query               | 5.59         |
+| Tableaux        | TanStack Table               | 8.20         |
+| Conteneurs      | Docker Compose               | —            |
 
-### 4.2 Back-end — squelette
+### 3.2 Arborescence actuelle
 
-- [ ] **`backend/pyproject.toml`** — dépendances (fastapi, sqlalchemy, geoalchemy2, pydantic, alembic, openpyxl, python-jose, passlib, psycopg2-binary ou asyncpg)
-- [ ] **`backend/app/main.py`** — point d'entrée FastAPI, CORS, middlewares, `/health`
-- [ ] **`backend/app/config.py`** — Settings Pydantic (DB URL, JWT secret, API keys, MAX_EXPORT_ROWS)
-- [ ] **`backend/app/db.py`** — engine SQLAlchemy, session factory, `get_db` dependency
+```text
+dhr/
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+├── sql/
+│   └── schema.sql                    (documentation de référence, non monté)
+├── docs/
+│   ├── mcdr.puml                     (MCDR métier)
+│   ├── mldr.md                       (MLDR technique, v1.2)
+│   ├── mcd.puml                      (diagramme de classes UML)
+│   ├── openapi.yaml                  (contrat d'API v1.2, 25 endpoints)
+│   ├── metadata_conventions.md       (conventions metadata)
+│   └── HANDOFF.md                    (ce document)
+├── backend/
+│   ├── Dockerfile
+│   ├── entrypoint.sh
+│   ├── pyproject.toml
+│   ├── alembic.ini
+│   ├── alembic/
+│   │   ├── env.py                    (filtrage strict NOS_TABLES)
+│   │   ├── script.py.mako
+│   │   └── versions/
+│   │       └── a3187e43649b_initial_schema.py   (complétée manuellement)
+│   └── app/
+│       ├── __init__.py
+│       ├── main.py                   (avec routers branchés)
+│       ├── config.py                 (Settings Pydantic)
+│       ├── db.py                     (engine, session, get_db, check_db)
+│       ├── models.py                 (13 tables SQLAlchemy/GeoAlchemy2)
+│       ├── auth.py                   (API key + JWT)
+│       ├── deps.py                   (pagination, filtres)
+│       ├── schemas/
+│       │   ├── __init__.py
+│       │   ├── common.py
+│       │   ├── geo.py
+│       │   ├── referentiels.py
+│       │   ├── fichiers.py
+│       │   ├── ingestion.py
+│       │   └── ouvrages.py
+│       └── routers/
+│           └── __init__.py           (vide pour l'instant)
+└── frontend/
+├── Dockerfile
+├── package.json
+├── vite.config.ts
+├── tsconfig.json
+├── index.html
+└── src/
+├── main.tsx
+├── App.tsx
+├── index.css
+└── vite-env.d.ts
+```
 
-### 4.3 Back-end — modèles & migrations
+### 3.3 Modèle de données (13 tables)
 
-- [ ] **`backend/app/models.py`** — SQLAlchemy + GeoAlchemy2 (miroir exact de `schema.sql`)
-  - `Source`, `TypeOuvrage`, `RefGeoAdmin`, `Localite`, `LocaliteAlias`
-  - `Fichier`, `Feuille`, `IngestionRun`, `LigneIngeree`
-  - `Ouvrage`, `CGPE`, `ProjetFinancement`, `OuvrageProjet`
-- [ ] **`backend/alembic/`** — migration initiale générée depuis les modèles
-- [ ] **Vérification** : `alembic upgrade head` produit un schéma identique à `schema.sql`
+**Référentiels** :
+- `source` — ONEP, SODECI, UNICEF, BAD, LONACI, ETAT_CI (seedés)
+- `type_ouvrage` — PMH, HV, HVA, PEA, AUTRE (seedés)
+- `ref_geo_admin` — hiérarchie district→région→département→sous-préf→localité (auto-référencée)
+- `localite` — village/campement rattaché à un nœud `localite` du référentiel
+- `localite_alias` — alias pour rapprochement flou
 
-### 4.4 Back-end — schémas Pydantic
+**Ingestion** :
+- `fichier` — fichier uploadé
+- `feuille` — feuille Excel
+- `ingestion_run` — exécution avec paramètres (mode complet/echantillon/plage)
+- `ligne_ingeree` — ligne normalisée + `donnees_brutes` JSONB
 
-- [ ] **`backend/app/schemas/`** — miroir des schémas OpenAPI
-  - `common.py` (Problem, Pagination, GeoJSON)
-  - `referentiels.py` (Source, TypeOuvrage, RefGeoAdmin, Localite)
-  - `fichiers.py` (Fichier, Feuille)
-  - `ingestion.py` (IngestionRun, RunComplet/Echantillon/Plage, LigneIngeree)
-  - `ouvrages.py` (Ouvrage, CGPE, QualiteFichier)
+**Métier** :
+- `ouvrage` — ouvrage consolidé avec `metadata` JSONB
+- `cgpe` — comité de gestion avec `metadata` JSONB
+- `projet_financement` — projet bailleur
+- `ouvrage_projet` — liaison N..N (co-financement)
 
-### 4.5 Back-end — authentification
+### 3.4 Décisions de conception figées
 
-- [ ] **`backend/app/auth.py`**
-  - Middleware API key (`X-API-Key`) pour lecture
-  - Dépendance JWT Bearer pour écriture
-  - Gestion des erreurs 401/403 au format RFC 7807
-
-### 4.6 Back-end — routers
-
-- [ ] **`backend/app/routers/referentiels.py`** — sources, types-ouvrage, ref-geo, localites
-- [ ] **`backend/app/routers/fichiers.py`** — GET liste, GET détail, POST upload, GET feuilles
-- [ ] **`backend/app/routers/ingestion.py`** — GET/POST runs, GET lignes
-- [ ] **`backend/app/routers/ouvrages.py`** — GET liste/détail ouvrages, GET CGPE, **GET /ouvrages/export, GET /ouvrages/export.csv**
-- [ ] **`backend/app/routers/carto.py`** — endpoints GeoJSON (fichier, tous, téléchargement)
-- [ ] **`backend/app/routers/qualite.py`** — tableau de bord qualité
-- [ ] **Vérification** : Swagger UI sur `/docs` reflète fidèlement `openapi.yaml`
-
-### 4.7 Back-end — services
-
-- [ ] **`backend/app/services/ingestion.py`**
-  - Détection des feuilles (`openpyxl`)
-  - Extraction des colonnes mappées → champs normalisés
-  - Extraction des colonnes non mappées → `metadata` (via convention)
-  - Remplissage `donnees_brutes` (JSONB)
-  - Gestion des modes `complet` / `echantillon` / `plage`
-  - Mise à jour `statut_qualite` (localité non résolue, géométrie invalide, type inconnu)
-- [ ] **`backend/app/services/rapprochement.py`** — rapprochement localité (trigram + unaccent + alias)
-- [ ] **`backend/app/services/consolidation.py`** — `ligne_ingeree` → `ouvrage` (V2, mais squelette prêt)
-- [ ] **`backend/app/services/export.py`** — export Excel/CSV streamé
-  - `export_ouvrages_xlsx(filters, columns, include_metadata) -> StreamingResponse`
-  - `export_ouvrages_csv(filters, columns, include_metadata) -> StreamingResponse`
-  - `yield_per(5000)` SQLAlchemy + `openpyxl` write_only
-  - Vérification de `MAX_EXPORT_ROWS` avant streaming (413 si dépassé)
-
-### 4.8 Back-end — tests
-
-- [ ] **`backend/tests/test_health.py`** — smoke test
-- [ ] **`backend/tests/test_auth.py`** — 401/403
-- [ ] **`backend/tests/test_carto.py`** — GeoJSON bien formé
-- [ ] **`backend/tests/test_ingestion.py`** — fichier Excel de test → lignes ingérées
-- [ ] **`backend/tests/test_export.py`** — export xlsx/csv valide, 413 au-delà de la limite
-
-### 4.9 Front-end — squelette
-
-- [ ] **`frontend/package.json`** — React, Vite, TS, Tailwind, shadcn/ui, TanStack Query/Table, Leaflet, React Router
-- [ ] **`frontend/vite.config.ts`** — proxy `/api` → back
-- [ ] **`frontend/tailwind.config.js`** + **`frontend/src/index.css`**
-- [ ] **`frontend/src/main.tsx`** + **`frontend/src/App.tsx`** — routing de base
-- [ ] **`frontend/src/lib/api.ts`** — client fetch typé (généré depuis OpenAPI ou manuel)
-
-### 4.10 Front-end — pages
-
-- [ ] **`frontend/src/pages/Fichiers.tsx`** — liste, upload, lancement d'ingestion, suivi de run
-- [ ] **`frontend/src/pages/Carte.tsx`** — sélecteur de fichier + option « Tous » + carte satellite Esri
-- [ ] **`frontend/src/pages/Liste.tsx`** — **tableau paginé filtrable + boutons d'export Excel/CSV**
-- [ ] **`frontend/src/pages/Qualite.tsx`** — tableau de bord par fichier
-- [ ] **`frontend/src/components/MapView.tsx`** — Leaflet + Esri + GeoJSON + popups
-- [ ] **`frontend/src/components/FileSelector.tsx`** — dropdown fichiers + option « Tous »
-- [ ] **`frontend/src/components/FiltersPanel.tsx`** — **composant partagé Carte/Liste** (type, état, district, région, département, sous-préfecture, année min/max, fichier)
-- [ ] **`frontend/src/components/ExportButton.tsx`** — **bouton d'export (Excel/CSV) avec indicateur du nombre de lignes filtrées**
-- [ ] **`frontend/src/components/UploadDialog.tsx`** — upload + sélection feuilles/plage
-
-### 4.11 Documentation
-
-- [ ] **`README.md`** — installation, lancement, endpoints, variables d'env
-- [ ] **`docs/architecture.md`** — vue d'ensemble (DB → back → front)
-- [ ] **`docs/ingestion.md`** — flux d'ingestion pas à pas
-- [ ] **`docs/export.md`** — format des colonnes exportées, limite, streaming
-- [ ] **`docs/deployment.md`** — déploiement Docker Compose
-
-### 4.12 Validation MVP
-
-- [ ] `docker compose up` → les 3 services démarrent
-- [ ] `curl http://localhost:8000/health` → `{"status":"ok"}`
-- [ ] `curl -H "X-API-Key: ..." http://localhost:8000/v1/sources` → liste seed
-- [ ] Upload d'un fichier Excel de test via l'UI → feuilles détectées
-- [ ] Lancement d'un run → lignes ingérées en base
-- [ ] Carte : sélection d'un fichier → points affichés sur vue satellite
-- [ ] Carte : option « Tous » → points consolidés affichés
-- [ ] **Liste : filtres appliqués → tableau paginé cohérent**
-- [ ] **Liste : bouton « Exporter Excel » → fichier `.xlsx` téléchargé, lignes = filtre courant**
-- [ ] **Liste : bouton « Exporter CSV » → fichier `.csv` téléchargé, lignes = filtre courant**
-- [ ] **Liste : export au-delà de `MAX_EXPORT_ROWS` → message d'erreur 413 clair**
-- [ ] Page Qualité : tableau de bord du fichier de test
+| Décision                                                         | Raison                                      |
+|------------------------------------------------------------------|---------------------------------------------|
+| `hash_sha256` **non unique** sur `fichier`                       | Réingestion légitime pour d'autres feuilles |
+| `code_ouvrage` **nullable, non unique**                          | Pas d'identifiant métier stable fourni      |
+| `UNIQUE (id_run, num_ligne_source)`                              | Plusieurs runs sur la même feuille          |
+| `metadata JSONB` sur `localite`, `ouvrage`, `cgpe`               | Capturer les colonnes non mappées           |
+| `donnees_brutes JSONB` sur `ligne_ingeree`                       | Source brute immuable                       |
+| Colonnes générées `geom`                                         | Via `geom_from_latlon(lat, lon)` STORED     |
+| `geom_from_latlon` STRICT + rejet (0,0)                          | Éviter les coordonnées aberrantes           |
+| Extensions : `postgis`, `fuzzystrmatch`, `unaccent`, `pg_trgm`   | Pas `postgis_topology` (inutile MVP)        |
+| Auth : API key (lecture) + JWT (écriture)                        | Séparation lecture/écriture                 |
+| Pagination : offset (petites listes) / cursor (lignes, ouvrages) | Adapter au volume                           |
+| `bbox` GeoJSON calculé côté front                                | Alléger la réponse back                     |
+| Export Excel/CSV streamé                                         | Éviter le chargement complet en RAM         |
 
 ---
 
-## 5. TODO — Hors MVP (V2 et au-delà)
+## 4. Contrat d'API (25 endpoints)
 
-### V2 — Fonctionnel
-- [ ] Édition manuelle des ouvrages
-- [ ] Rapprochement/dédoublonnage automatique (`id_ouvrage_consolide`)
-- [ ] Promotion d'un champ `metadata` en attribut de première classe (`attribut_definition` + `ouvrage_attribut`)
-- [ ] Traçabilité fine des `metadata` (`metadata_sources` jsonb)
-- [ ] Statistiques et tableaux de bord analytiques
-- [ ] **Export PDF**
-- [ ] **Export multi-feuilles (une feuille par source)**
-- [ ] **Choix des colonnes à l'export via l'UI**
-- [ ] **Export asynchrone (202 + poll) au-delà de 50k lignes**
-- [ ] Gestion des utilisateurs (table `utilisateur`, rôles fins)
-- [ ] Versioning/historique des modifications
-- [ ] Soft delete
-- [ ] WebSocket/SSE pour suivi temps réel
+Base URL : `https://api.dhr.local/v1` (placeholder, à remplacer)
 
-### V2 — Technique
-- [ ] Partitionnement de `ligne_ingeree` (si volume > quelques millions)
-- [ ] Cache Redis sur les endpoints carto et export
-- [ ] Tests de charge (Locust)
-- [ ] CI/CD (GitHub Actions ou GitLab CI)
-- [ ] Monitoring (Sentry, Prometheus)
+### 4.1 Authentification
 
-### Prod
-- [ ] Choix de l'hébergement (VPS interne DHR ou cloud)
-- [ ] Nom de domaine réel (remplacer `api.dhr.local`)
-- [ ] Certificats TLS
-- [ ] Sauvegardes PostgreSQL (pg_dump + rotation)
-- [ ] Politique de rétention des fichiers bruts
+| Méthode                                        | Usage                        |
+|------------------------------------------------|------------------------------|
+| **API key** (`X-API-Key`)                      | Lecture (consultation)       |
+| **JWT Bearer** (`Authorization: Bearer <jwt>`) | Écriture (ingestion, upload) |
 
----
+### 4.2 Endpoints
 
-## 6. Points ouverts (à trancher)
+| Méthode | Endpoint                              | Auth    | Statut       |
+|---------|---------------------------------------|---------|--------------|
+| GET     | `/sources`                            | API key | ⏳ à produire |
+| GET     | `/types-ouvrage`                      | API key | ⏳ à produire |
+| GET     | `/ref-geo`                            | API key | ⏳ à produire |
+| GET     | `/ref-geo/{id}/chemin`                | API key | ⏳ à produire |
+| GET     | `/localites`                          | API key | ⏳ à produire |
+| GET     | `/localites/{id}`                     | API key | ⏳ à produire |
+| GET     | `/fichiers`                           | API key | ⏳ à produire |
+| GET     | `/fichiers/{id}`                      | API key | ⏳ à produire |
+| POST    | `/fichiers`                           | JWT     | ⏳ Phase 4    |
+| GET     | `/fichiers/{id}/feuilles`             | API key | ⏳ à produire |
+| POST    | `/fichiers/{id}/runs`                 | JWT     | ⏳ Phase 4    |
+| GET     | `/fichiers/{id}/runs`                 | API key | ⏳ à produire |
+| GET     | `/runs/{id}`                          | API key | ⏳ à produire |
+| GET     | `/feuilles/{id}/lignes`               | API key | ⏳ à produire |
+| GET     | `/runs/{id}/lignes`                   | API key | ⏳ à produire |
+| GET     | `/lignes/{id}`                        | API key | ⏳ à produire |
+| GET     | `/ouvrages`                           | API key | ⏳ à produire |
+| GET     | `/ouvrages/{id}`                      | API key | ⏳ à produire |
+| GET     | `/ouvrages/export`                    | API key | ⏳ Phase 5    |
+| GET     | `/ouvrages/export.csv`                | API key | ⏳ Phase 5    |
+| GET     | `/cgpe/{id}`                          | API key | ⏳ à produire |
+| GET     | `/carto/fichiers/{id}/points`         | API key | ⏳ à produire |
+| GET     | `/carto/tous/points`                  | API key | ⏳ à produire |
+| GET     | `/carto/fichiers/{id}/points.geojson` | API key | ⏳ à produire |
+| GET     | `/qualite/fichiers/{id}`              | API key | ⏳ à produire |
 
-| # | Point                                                   | Impact           | Reco                                     |
-|---|---------------------------------------------------------|------------------|------------------------------------------|
-| 1 | Déploiement prod (VPS interne vs cloud)                 | Infra            | À discuter avec la DHR                   |
-| 2 | Nom de domaine réel                                     | API              | À discuter avec la DHR                   |
-| 3 | Politique de rétention des fichiers bruts               | Stockage         | À définir (ex. 5 ans)                    |
-| 4 | Gestion des utilisateurs au MVP (config vs table)       | Auth             | Config pour le MVP                       |
-| 5 | Règle de rapprochement des ouvrages (GPS + nom + année) | Dédoublonnage V2 | À définir en V2                          |
-| 6 | Valeur exacte de `MAX_EXPORT_ROWS`                      | Export           | 100 000 par défaut, configurable via env |
-
----
-
-## 7. Conventions et rappels
-
-### Nommage
-- Tables : singulier, `snake_case`
-- PK : `id_<table>`
-- FK : `<table>_id` ou `id_<table>`
-- Timestamps : `created_at`, `updated_at` (timestamptz)
-- Métadonnées : `metadata` (jsonb), clés en `snake_case`
-
-### Sécurité
-- **Jamais** de secret en clair dans le code
-- **Toujours** `.env` pour les secrets (JWT secret, API keys, DB password)
-- **Toujours** valider les entrées via Pydantic
-- **Toujours** utiliser les requêtes paramétrées (SQLAlchemy)
-
-### Qualité
-- **Toujours** documenter une nouvelle clé `metadata` dans `docs/metadata_conventions.md`
-- **Toujours** tester un endpoint avant de le merger
-- **Toujours** mettre à jour `openapi.yaml` si le contrat change
-
-### Export
-- **Toujours** streamer (jamais de `df.to_excel()` en RAM)
-- **Toujours** vérifier `MAX_EXPORT_ROWS` avant de commencer le streaming
-- **Toujours** réutiliser les filtres de `GET /ouvrages` (pas de divergence vue/export)
-
-### Git
-- Branches : `main` (prod), `dev` (intégration), `feat/<nom>`, `fix/<nom>`
-- Commits : conventionnels (`feat:`, `fix:`, `docs:`, `chore:`)
-- PR : 1 reviewer minimum, tests passants
+Le détail complet des schémas de réponse est dans `docs/openapi.yaml`.
 
 ---
 
-## 8. Ordre de production recommandé
-Phase 1 — Socle (1-2 jours)
-4.1 Infrastructure + 4.2 Squelette back + 4.3 Modèles + 4.3 Migration
-→ Validation : docker compose up + /health + alembic upgrade head
+## 5. Démarrage
 
-Phase 2 — API lecture (2-3 jours)
-4.4 Schémas Pydantic + 4.5 Auth + 4.6 Routers (lecture seule)
-→ Validation : Swagger UI + curl sur les 17 endpoints de lecture
+### 5.1 Première installation
 
-Phase 3 — Ingestion (3-5 jours)
-4.7 Service d'ingestion + 4.6 Router POST upload + runs
-→ Validation : upload d'un fichier Excel de test + run complet
+```powershell
+# 1. Cloner le repo
+git clone <url> dhr
+cd dhr
 
-Phase 4 — Export (1-2 jours)
-4.7 Service export + 4.6 Router export
-→ Validation : curl export xlsx + csv + 413 au-delà de la limite
+# 2. Copier le template d'env
+cp .env.example .env
+# (ou : Copy-Item .env.example .env sous PowerShell)
 
-Phase 5 — Front (4-6 jours)
-4.9 Squelette front + 4.10 Pages Fichiers + Carte + Liste + Qualité
-→ Validation : parcours utilisateur complet (upload → carte → liste → export)
+# 3. (Optionnel) Générer un JWT_SECRET robuste
+# openssl rand -hex 32  → coller dans .env
 
-Phase 6 — Tests & doc (1-2 jours)
-4.8 Tests + 4.11 Documentation
-→ Validation : MVP prêt
-text
+# 4. Démarrer
+docker compose up -d --build
 
+# 5. Vérifier
+docker compose ps
+# Attendu : 3 services (db healthy, backend healthy, frontend running)
 
-**Total estimé** : 12-20 jours ouvrés (1 développeur full-stack).
+curl http://localhost:8000/health
+# Attendu : {"status":"ok","db":true,"version":"0.1.0","env":"development"}
+
+# 6. Swagger UI
+# Ouvrir http://localhost:8000/docs
+
+# 7. Front
+# Ouvrir http://localhost:5173
+```
+
+### 5.2 Commandes utiles
+
+```powershell
+# Logs
+docker compose logs -f backend
+docker compose logs -f db
+
+# Shell dans le container back
+docker compose exec backend bash
+
+# Shell psql
+docker compose exec db psql -U dhr -d dhr
+
+# Arrêter
+docker compose down
+
+# Arrêter + supprimer les volumes (⚠️ perte de données)
+docker compose down -v
+
+# Rebuilder
+docker compose up -d --build
+
+# Redémarrer le back
+docker compose restart backend
+```
+
+### 5.3 Commandes Alembic
+
+```powershell
+# Statut
+docker compose exec backend alembic current
+
+# Historique
+docker compose exec backend alembic history
+
+# Appliquer
+docker compose exec backend alembic upgrade head
+
+# Créer une migration (après modif de models.py)
+docker compose exec backend alembic revision --autogenerate -m "description"
+
+# Downgrade
+docker compose exec backend alembic downgrade -1
+```
+
+### 5.4 Générer un JWT pour tester l'écriture
+
+```powershell
+docker compose exec backend python -c "
+from app.auth import create_access_token
+print(create_access_token('test-user', 'admin'))
+"
+```
+
+Puis :
+
+```powershell
+curl -H "Authorization: Bearer <jwt>" -X POST http://localhost:8000/v1/fichiers ...
+```
 
 ---
 
-## 9. Ressources
+## 6. Points d'attention (pièges connus)
 
-- **Schéma SQL** : `sql/schema.sql`
-- **Contrat API** : `docs/openapi.yaml`
-- **Diagrammes** : `docs/mcdr.puml`, `docs/mcd.puml`
-- **Modèle technique** : `docs/mldr.md`
-- **Conventions métadonnées** : `docs/metadata_conventions.md`
-
----
-
-## 10. Prochaine action immédiate
-
-**Produire le socle Phase 1** :
-1. `docker-compose.yml`
-2. `backend/Dockerfile`
-3. `backend/pyproject.toml`
-4. `backend/app/main.py` (avec `/health`)
-5. `backend/app/config.py`
-6. `backend/app/db.py`
-
-**Critère de validation** : `docker compose up` → `curl http://localhost:8000/health` → `{"status": "ok"}`
+| Piège                                                          | Solution                                                                        |
+|----------------------------------------------------------------|---------------------------------------------------------------------------------|
+| **Migration Alembic contient les `drop_table` PostGIS**        | Résolu : `env.py` filtre via `NOS_TABLES = set(Base.metadata.tables.keys())`    |
+| **`server_default="'{}'::jsonb"` crée un DEFAULT invalide**    | Utiliser `server_default=text("'{}'::jsonb")`                                   |
+| **`alembic upgrade head` au démarrage du backend**             | `entrypoint.sh` le fait automatiquement                                         |
+| **Le backend crash en boucle si migration pourrie**            | `docker compose logs backend` → identifier → supprimer la migration → régénérer |
+| **`include_schemas=False` ne suffit pas**                      | Filtre liste blanche `NOS_TABLES` obligatoire                                   |
+| **`localite.metadata_` (Python) vs `localite.metadata` (SQL)** | Pydantic utilise `from_attributes=True` + alias si besoin                       |
+| **`node_modules` conflit host/container**                      | Volume nommé `frontend_node_modules`                                            |
+| **Hot-reload Vite KO dans Docker**                             | `usePolling: true` dans `vite.config.ts`                                        |
+| **`postgis_topology` non activé**                              | Décision MVP : pas besoin de topologie                                          |
+| **Seed réexécuté à chaque `upgrade`**                          | `ON CONFLICT DO NOTHING`                                                        |
 
 ---
 
-## 11. Historique des versions
+## 7. Dette technique / points ouverts
 
-| Version | Date       | Changement                                                        |
-|---------|------------|-------------------------------------------------------------------|
-| 1.0     | 2026-10-23 | Version initiale du handoff (23 endpoints, sans export)           |
-| 1.1     | 2026-10-23 | Ajout `metadata` sur `localite`, `ouvrage`, `cgpe` (23 endpoints) |
-| 1.2     | 2026-10-26 | Ajout vue liste + export Excel/CSV (**25 endpoints**)             |
+| # | Point                                                    | Impact        | À traiter          |
+|---|----------------------------------------------------------|---------------|--------------------|
+| 1 | Déploiement prod (VPS interne vs cloud)                  | Infra         | V2                 |
+| 2 | Nom de domaine réel (`api.dhr.local` placeholder)        | Config        | Prod               |
+| 3 | Politique de rétention des fichiers bruts                | Stockage      | V2                 |
+| 4 | Gestion des utilisateurs (table `utilisateur` vs config) | Auth          | Config pour MVP    |
+| 5 | Règle de rapprochement des ouvrages (GPS + nom + année)  | Dédoublonnage | V2                 |
+| 6 | Valeur exacte de `MAX_EXPORT_ROWS`                       | Export        | 100 000 par défaut |
+| 7 | `localite.metadata_` → `metadata` (mapping Pydantic)     | Schémas       | À finaliser en 3.2 |
+| 8 | Rapprochement flou des localités (trigram + alias)       | Ingestion     | Phase 4            |
+| 9 | Tests unitaires et d'intégration                         | Qualité       | Phase 7            |
+
+---
+
+## 8. Historique des versions
+
+| Version | Date       | Changement                                                                              |
+|---------|------------|-----------------------------------------------------------------------------------------|
+| 1.0     | 2026-10-23 | Conception initiale (23 endpoints)                                                      |
+| 1.1     | 2026-10-23 | Ajout `metadata` sur `localite`, `ouvrage`, `cgpe`                                      |
+| 1.2     | 2026-10-26 | Ajout vue liste + export Excel/CSV (25 endpoints)                                       |
+| 2.0     | 2026-10-27 | Phase 1-2 terminées (infra + modèles + migration). Phase 3.1 terminée (schémas + auth). |
+
+---
+
+## 9. Prochaine action immédiate
+
+**Phase 3.2 — Routers référentiels + fichiers** :
+
+1. `backend/app/routers/__init__.py` (déjà créé vide)
+2. `backend/app/routers/referentiels.py` — 6 endpoints :
+    - `GET /sources`
+    - `GET /types-ouvrage`
+    - `GET /ref-geo`
+    - `GET /ref-geo/{id}/chemin`
+    - `GET /localites`
+    - `GET /localites/{id}`
+3. `backend/app/routers/fichiers.py` — 3 endpoints :
+    - `GET /fichiers`
+    - `GET /fichiers/{id}`
+    - `GET /fichiers/{id}/feuilles`
+
+**Critère de validation** : `http://localhost:8000/docs` affiche les 6 + 3 endpoints, et `curl -H "X-API-Key: ..." http://localhost:8000/v1/sources` retourne les 6 sources seedées.
+
+---
+
+*Handoff rédigé le 2026-10-27. Toute modification du contrat d'API ou du schéma doit être répercutée dans les 5 livrables de conception (`mcdr.puml`, `mldr.md`, `mcd.puml`, `openapi.yaml`, `metadata_conventions.md`) avant implémentation.*
 
 
-Prochain message : squelettes de code
-
--- `backend/app/services/export.py` (streaming Excel/CSV)
-
--- `frontend/src/pages/Liste.tsx` (tableau paginé + filtres + export)
-
--- `frontend/src/components/FiltersPanel.tsx` (partagé Carte/Liste)

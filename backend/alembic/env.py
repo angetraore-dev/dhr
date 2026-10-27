@@ -1,10 +1,8 @@
 """
 Configuration Alembic.
 
-- Charge l'URL DB depuis app.config (pas depuis alembic.ini)
-- Importe tous les modèles pour qu'autogenerate les voie
-- Exclut strictement les schémas PostGIS (tiger, topology) et spatial_ref_sys
-- Mode offline (SQL) et online (engine) supportés
+Filtre strict : ne compare QUE les tables de Base.metadata.
+Toute autre table (PostGIS, tiger, topology, spatial_ref_sys) est ignorée.
 """
 from __future__ import annotations
 
@@ -15,7 +13,6 @@ from pathlib import Path
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# --- Ajout du répertoire backend au PYTHONPATH ---
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
@@ -24,83 +21,65 @@ from app.config import get_settings  # noqa: E402
 from app.db import Base  # noqa: E402
 from app import models  # noqa: F401,E402
 
-
-# --- Alembic Config ---
 config = context.config
 
-# --- Logging ---
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# --- URL DB depuis app.config ---
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", str(settings.database_url))
 
-# --- Metadata cible ---
-target_metadata = Base.metadata
+
+# --- Liste blanche : uniquement nos tables ---
+NOS_TABLES = set(Base.metadata.tables.keys())
 
 
-# --- Filtre des objets à ignorer dans l'autogenerate ---
 def include_object(object, name, type_, reflected, compare_to):
     """
-    Exclut les objets gérés par PostGIS ou Alembic lui-même.
-
-    On filtre par nom ET par schéma, car object.schema peut être None
-    dans certains contextes Alembic.
+    N'inclut QUE les tables de Base.metadata.
+    Toute autre table (PostGIS, tiger, topology, alembic_version, ...) est exclue.
     """
-    # Tables de PostGIS / Alembic à ne jamais toucher
-    TABLES_INTERDITES = {
-        "spatial_ref_sys",
-        "alembic_version",
-        "layer",          # topology.layer
-        "topology",       # topology.topology
-    }
     if type_ == "table":
-        if name in TABLES_INTERDITES:
-            return False
-        # Filtre par schéma (si disponible)
-        schema = getattr(object, "schema", None)
-        if schema in ("tiger", "topology"):
-            return False
+        return name in NOS_TABLES
+    if type_ == "index":
+        table = getattr(object, "table", None)
+        if table is not None:
+            return table.name in NOS_TABLES
+        return False
     return True
 
 
 def run_migrations_offline() -> None:
-    """Mode offline : génère le SQL sans se connecter."""
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
-        target_metadata=target_metadata,
+        target_metadata=Base.metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
         compare_server_default=True,
-        include_schemas=False,        # ← FALSE : on ne compare que le schéma public
+        include_schemas=False,
         include_object=include_object,
     )
-
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    """Mode online : se connecte et applique les migrations."""
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
-            target_metadata=target_metadata,
+            target_metadata=Base.metadata,
             compare_type=True,
             compare_server_default=True,
-            include_schemas=False,    # ← FALSE : on ne compare que le schéma public
+            include_schemas=False,
             include_object=include_object,
         )
-
         with context.begin_transaction():
             context.run_migrations()
 
