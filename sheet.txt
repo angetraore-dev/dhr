@@ -1,5 +1,9 @@
-Il n'y a plus d'erreurs:
-docker compose exec backend python -c "from app.main import app; import json; print(json.dumps(list(app.openapi()['paths'].keys()), indent=2))"
+ docker compose restart backend
+[+] restart 0/1
+ - Container dhr_backend Restarting                                                                                               0.8s
+PS C:\Users\hp\PhpstormProjects\dhr> docker compose exec backend python -c "from app.main import app; print('OK')"
+OK
+PS C:\Users\hp\PhpstormProjects\dhr> docker compose exec backend python -c "from app.main import app; import json; print(json.dumps(list(app.openapi()['paths'].keys()), indent=2))"
 [
   "/",
   "/health",
@@ -15,60 +19,29 @@ docker compose exec backend python -c "from app.main import app; import json; pr
   "/v1/ouvrages",
   "/v1/ouvrages/{id}",
   "/v1/cgpe/{id}",
+  "/v1/ouvrages/export",
+  "/v1/ouvrages/export.csv",
   "/v1/carto/fichiers/{id_fichier}/points",
   "/v1/carto/tous/points",
   "/v1/carto/fichiers/{id_fichier}/points.geojson",
   "/v1/qualite/fichiers/{id}"
 ]
-
-
-PS C:\Users\hp\PhpstormProjects\dhr> docker compose exec backend python -c "from app.main import app; print('OK')"
-OK
-
 PS C:\Users\hp\PhpstormProjects\dhr> $apiKey = "dhr_dev_read_key_change_me"
 PS C:\Users\hp\PhpstormProjects\dhr>
-PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/ouvrages
-{"data":[],"pagination":{"limit":100,"next_cursor":null,"has_more":false}}
-PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/ouvrages/1
-HTTP/1.1 404 Not Found
-date: Tue, 27 Oct 2026 16:33:21 GMT
-server: uvicorn
-content-length: 34
-content-type: application/json
-
-{"detail":"Ouvrage 1 introuvable"}
-PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/cgpe/1
-HTTP/1.1 404 Not Found
-date: Tue, 27 Oct 2026 16:33:21 GMT
-server: uvicorn
-content-length: 31
-content-type: application/json
-
-{"detail":"CGPE 1 introuvable"}
-PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/carto/fichiers/1/points
-HTTP/1.1 404 Not Found
-date: Tue, 27 Oct 2026 16:33:21 GMT
-server: uvicorn
-content-length: 34
-content-type: application/json
-
-{"detail":"Fichier 1 introuvable"}
-PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -H "X-API-Key: $apiKey" http://localhost:8000/v1/carto/tous/points
-{"type":"FeatureCollection","features":[],"meta":{"count":0}}
-PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/carto/fichiers/1/points.geojson
-HTTP/1.1 404 Not Found
-date: Tue, 27 Oct 2026 16:33:22 GMT
-server: uvicorn
-content-length: 34
-content-type: application/json
-
-{"detail":"Fichier 1 introuvable"}
-PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -i -H "X-API-Key: $apiKey" http://localhost:8000/v1/qualite/fichiers/1
-HTTP/1.1 404 Not Found
-date: Tue, 27 Oct 2026 16:33:23 GMT
-server: uvicorn
-content-length: 34
-content-type: application/json
-
-{"detail":"Fichier 1 introuvable"}
+PS C:\Users\hp\PhpstormProjects\dhr> # Export Excel
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -H "X-API-Key: $apiKey" -o test_ouvrages.xlsx http://localhost:8000/v1/ouvrages/export
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+100    150 100    150   0      0   3154      0                              0
 PS C:\Users\hp\PhpstormProjects\dhr>
+PS C:\Users\hp\PhpstormProjects\dhr> # Export CSV
+PS C:\Users\hp\PhpstormProjects\dhr> curl.exe -H "X-API-Key: $apiKey" -o test_ouvrages.csv http://localhost:8000/v1/ouvrages/export.csv
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+100    154 100    154   0      0   3504      0                              0
+PS C:\Users\hp\PhpstormProjects\dhr>
+
+le test retourne les fichiers:
+Dans le csv, voici le msg: "{"detail":[{"type":"int_parsing","loc":["path","id"],"msg":"Input should be a valid integer, unable to parse string as an integer","input":"export.csv"}]}
+"
+Et dans le xlsx, impossible d'ouvrir le fichier car son format ou son fichier n'est pas valide

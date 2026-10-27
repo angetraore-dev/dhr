@@ -25,6 +25,15 @@ from app.schemas.ouvrages import (
 )
 from app.schemas.referentiels import LocaliteResume
 
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
+from app.services.export import (
+    export_ouvrages_csv,
+    export_ouvrages_xlsx,
+    filename_csv,
+    filename_xlsx,
+)
+
 router = APIRouter(
     tags=["Ouvrages"],
     dependencies=[Depends(require_api_key)],
@@ -225,4 +234,60 @@ def get_cgpe(
         nb_membres=c.nb_membres,
         commentaire=c.commentaire,
         metadata=c.metadata_ if include == "metadata" else None,
+    )
+
+# =====================================================================
+# EXPORT EXCEL
+# =====================================================================
+@router.get(
+    "/ouvrages/export",
+    summary="Export Excel des ouvrages filtrés",
+    response_class=StreamingResponse,
+)
+def export_ouvrages_excel(
+    filters: OuvrageFilters = Depends(),
+    include: Literal["metadata"] | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Génère un fichier .xlsx streamé avec les ouvrages filtrés.
+    Limite : MAX_EXPORT_ROWS (défaut 100 000), au-delà → 413.
+    """
+    filters_dict = filters.to_dict()
+    include_metadata = include == "metadata"
+
+    return StreamingResponse(
+        export_ouvrages_xlsx(db, filters_dict, include_metadata),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename_xlsx()}"'
+        },
+    )
+
+
+# =====================================================================
+# EXPORT CSV
+# =====================================================================
+@router.get(
+    "/ouvrages/export.csv",
+    summary="Export CSV des ouvrages filtrés",
+    response_class=StreamingResponse,
+)
+def export_ouvrages_csv_endpoint(
+    filters: OuvrageFilters = Depends(),
+    include: Literal["metadata"] | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Génère un fichier .csv (UTF-8, séparateur ';') streamé.
+    """
+    filters_dict = filters.to_dict()
+    include_metadata = include == "metadata"
+
+    return StreamingResponse(
+        export_ouvrages_csv(db, filters_dict, include_metadata),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename_csv()}"'
+        },
     )
