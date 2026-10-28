@@ -27,7 +27,7 @@ info:
         
         ## Export
         Deux endpoints d'export tabulaire sont disponibles :
-        - `GET /ouvrages/export` → fichier Excel (.xlsx) streamé
+        - `GET /ouvrages/export` → fichier Excel (.xlsx) streamé (avec feuille Synthèse)
         - `GET /ouvrages/export.csv` → fichier CSV streamé
         
         Les filtres sont **identiques** à `GET /ouvrages`. Limite :
@@ -583,7 +583,7 @@ paths:
 
     /ouvrages/export:
         get:
-            tags: [Ouvrages]
+            tags: [ Ouvrages ]
             summary: Export Excel des ouvrages filtrés
             description: |
                 Génère un fichier `.xlsx` streamé avec les ouvrages filtrés.
@@ -598,7 +598,7 @@ paths:
                   in: query
                   schema:
                       type: string
-                      enum: [fonctionnel, en_panne, abandonne, inconnu]
+                      enum: [ fonctionnel, en_panne, abandonne, inconnu ]
                 - name: district
                   in: query
                   schema: { type: string }
@@ -622,7 +622,11 @@ paths:
                   description: Inclure les colonnes metadata (une par clé)
                   schema:
                       type: string
-                      enum: [metadata]
+                      enum: [ metadata ]
+                - name: with_summary
+                  in: query
+                  description: Inclure la feuille Synthèse (défaut true)
+                  schema: { type: boolean, default: true }
                 - name: columns
                   in: query
                   description: |
