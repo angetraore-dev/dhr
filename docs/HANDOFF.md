@@ -20,31 +20,23 @@ Le projet est en phase MVP : **lecture + ingestion + carto + export**. L'écritu
 
 ---
 
-## 2. État d'avancement
-
 ### ✅ Terminé
 
-| Phase                             | Contenu                                                                                         | Statut |
-|-----------------------------------|-------------------------------------------------------------------------------------------------|--------|
-| **Conception**                    | MCDR, MLDR, diagramme UML, `schema.sql`, `openapi.yaml`, conventions metadata                   | ✅      |
-| **Phase 1 — Infrastructure**      | Docker Compose (Postgres/PostGIS + FastAPI + Vite), config, db, entrypoint                      | ✅      |
-| **Phase 2 — Modèles + migration** | 13 tables SQLAlchemy, migration Alembic complétée, extensions, fonctions, triggers, vues, seed  | ✅      |
-| **Phase 3 — API lecture**         | 18 endpoints (référentiels, fichiers, ouvrages, CGPE, carto, qualité), auth API key, pagination | ✅      |
+| Phase                             | Contenu                                                                        | Statut |
+|-----------------------------------|--------------------------------------------------------------------------------|--------|
+| **Conception**                    | MCDR, MLDR, diagramme UML, `schema.sql`, `openapi.yaml`, conventions metadata  | ✅      |
+| **Phase 1 — Infrastructure**      | Docker Compose, config, db, entrypoint                                         | ✅      |
+| **Phase 2 — Modèles + migration** | 13 tables, migration Alembic complète                                          | ✅      |
+| **Phase 3 — API lecture**         | 18 endpoints (référentiels, fichiers, ouvrages, CGPE, carto, qualité)          | ✅      |
+| **Phase 5 — Export**              | Excel (XlsxWriter + Synthèse KPI) + CSV, colonne N°, limite 413 (20 endpoints) | ✅      |
 
 ### ⏳ À faire
 
-| Phase                   | Contenu                                                             |
-|-------------------------|---------------------------------------------------------------------|
-| **Phase 4 — Ingestion** | Service de parsing Excel multi-feuilles, upload, runs (5 endpoints) |
-| **Phase 5 — Export**    | Export Excel/CSV streamé (2 endpoints)                              |
-| **Phase 6 — Front**     | React + Vite + Leaflet + pages Fichiers/Carte/Liste/Qualité         |
-| **Phase 7 — Tests**     | Tests d'API, tests d'ingestion, tests d'export                      |
-
-**Ordre recommandé** : Phase 5 (Export) → Phase 4 (Ingestion) → Phase 6 (Front) → Phase 7 (Tests).
-
-L'export est plus simple que l'ingestion (pas de parsing, juste lecture SQL + streaming). Il permet une victoire rapide et peut être testé avec les données seedées.
-
----
+| Phase                   | Contenu                                                  |
+|-------------------------|----------------------------------------------------------|
+| **Phase 4 — Ingestion** | Parsing Excel multi-feuilles, upload, runs (5 endpoints) |
+| **Phase 6 — Front**     | React + Vite + Leaflet + pages                           |
+| **Phase 7 — Tests**     | Tests d'API, d'ingestion, d'export                       |
 
 ## 3. Architecture
 
@@ -379,7 +371,7 @@ curl.exe -H "Authorization: Bearer <jwt>" -X POST http://localhost:8000/v1/fichi
 | 1.2     | 2026-10-26 | Ajout vue liste + export Excel/CSV (25 endpoints)                                       |
 | 2.0     | 2026-10-27 | Phase 1-2 terminées (infra + modèles + migration). Phase 3.1 terminée (schémas + auth). |
 | 2.1     | 2026-10-27 | Phase 3 terminée (18 endpoints de lecture opérationnels, auth API key, fix UTF-8).      |
-
+| 2.2     | 2026-10-28 | Phase 5 terminée (export Excel avec Synthèse KPI + CSV + colonne N°, 20 endpoints)      |
 ---
 
 ## 9. Prochaine action immédiate
