@@ -462,7 +462,7 @@ def export_ouvrages_xlsx(
     with_summary: bool = True,
 ) -> Generator[bytes, None, None]:
     """Génère un fichier Excel (xlsx) avec XlsxWriter en constant_memory."""
-    _check_export_limit(db, filters)
+    # _check_export_limit(db, filters)
 
     # Passe 1 : metadata columns
     metadata_columns: list[str] = []
@@ -524,7 +524,7 @@ def export_ouvrages_csv(
     filters: dict[str, Any],
     include_metadata: bool = False,
 ) -> Generator[str, None, None]:
-    _check_export_limit(db, filters)
+    # _check_export_limit(db, filters)
 
     metadata_columns: list[str] = []
     if include_metadata:

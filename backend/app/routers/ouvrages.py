@@ -31,6 +31,7 @@ from app.schemas.ouvrages import (
 )
 from app.schemas.referentiels import LocaliteResume
 from app.services.export import (
+    _check_export_limit,
     export_ouvrages_csv,
     export_ouvrages_xlsx,
     filename_csv,
@@ -182,6 +183,8 @@ def export_ouvrages_excel(
     filters_dict = filters.to_dict()
     include_metadata = include == "metadata"
 
+    _check_export_limit(db, filters_dict)
+
     return StreamingResponse(
         export_ouvrages_xlsx(db, filters_dict, include_metadata, with_summary),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -206,6 +209,8 @@ def export_ouvrages_csv_endpoint(
 ):
     filters_dict = filters.to_dict()
     include_metadata = include == "metadata"
+
+    _check_export_limit(db, filters_dict)
 
     return StreamingResponse(
         export_ouvrages_csv(db, filters_dict, include_metadata),
