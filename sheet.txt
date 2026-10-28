@@ -1,0 +1,20 @@
+docker compose exec backend python /app/scripts/test_ingestion.py /app/tests/fixtures/fichier3.xlsx
+
+======================================================================
+Test : fichier3.xlsx
+======================================================================
+
+  Feuille 'Base Brute_Juil24 Dist, Montagn' (header_row=7, 2357 lignes)
+    Colonnes mappées (3) :
+      [2] 'REGION' → region_brute
+      [3] 'DEPARTEMENT' → departement_brute
+      [4] 'SOUS\nPREFECTURE' → sous_prefecture_brute
+    Colonnes non mappées (52) :
+      'N°'
+      'DR SODECI'
+      'VILLAGE'
+      'CODE\nVILLAGE'
+      'POPULATION'
+      ... et 47 autres
+
+  → Mapping OK pour toutes les feuilles

@@ -68,6 +68,8 @@ services:
       - ./backend/alembic:/app/alembic:rw
       - ./backend/alembic.ini:/app/alembic.ini:ro
       - ./backend/entrypoint.sh:/app/entrypoint.sh:ro
+      - ./backend/scripts:/app/scripts:ro
+      - ./backend/tests:/app/tests:ro
       - uploads_data:/app/uploads
     depends_on:
       db:
