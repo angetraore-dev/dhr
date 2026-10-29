@@ -409,10 +409,20 @@ def ingerer_feuille(
             if code in nom_feuille_upper:
                 type_feuille = code
                 break
-
         nb = 0
         for ligne in lignes:
             type_ouvrage = ligne.get("type_ouvrage_brut") or type_feuille
+
+            # Détermine le statut qualité
+            lat = ligne.get("latitude_decimal")
+            lon = ligne.get("longitude_decimal")
+            if lat is None or lon is None:
+                statut_qualite = "geom_invalide"
+                message_qualite = None
+            else:
+                statut_qualite = "ok"
+                message_qualite = None
+
             record = LigneIngeree(
                 id_feuille=feuille.id_feuille,
                 id_run=run.id_run,
@@ -424,15 +434,16 @@ def ingerer_feuille(
                 sous_prefecture_brute=ligne.get("sous_prefecture_brute"),
                 localite_brute=ligne.get("localite_brute"),
                 type_localite_brut=ligne.get("type_localite_brut"),
-                latitude_decimal=ligne.get("latitude_decimal"),
-                longitude_decimal=ligne.get("longitude_decimal"),
+                latitude_decimal=lat,
+                longitude_decimal=lon,
                 type_ouvrage_brut=type_ouvrage,
                 etat_ouvrage_brut=ligne.get("etat_ouvrage_brut"),
                 annee_projet=_to_int(ligne.get("annee_projet")),
                 bailleur_brut=ligne.get("bailleur_brut"),
                 type_financement_brut=ligne.get("type_financement_brut"),
                 a_cgpe=_to_bool(ligne.get("a_cgpe")),
-                statut_qualite="ok",
+                statut_qualite=statut_qualite,
+                message_qualite=message_qualite,
             )
             db.add(record)
             nb += 1
