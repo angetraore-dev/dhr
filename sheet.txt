@@ -1,20 +1,23 @@
-docker compose exec backend python /app/scripts/test_ingestion.py /app/tests/fixtures/fichier3.xlsx
+docker compose exec db psql -U dhr -d dhr -c "SELECT f.nom_feuille, l.type_ouvrage_brut, COUNT(*) FROM ligne_ingeree l JOIN feuille f ON f.id_feuille = l.id_feuille GROUP BY f.nom_feuille, l.type_ouvrage_brut ORDER BY f.nom_feuille, COUNT(*) DESC;"
+   nom_feuille   | type_ouvrage_brut | count
+-----------------+-------------------+-------
+ Autres_ouvrages | Forage            |    14
+ Autres_ouvrages | Puits             |     4
+ HVA             | Forage            |    84
+ HVA             | Puits             |     2
+ Localités       |                   |  1132
+ PEA             | Forage            |   168
+ PEA             | Puits             |     4
+ PMH             | Forage            |  1963
+ PMH             | Puits             |   140
+(9 rows)
 
-======================================================================
-Test : fichier3.xlsx
-======================================================================
-
-  Feuille 'Base Brute_Juil24 Dist, Montagn' (header_row=7, 2357 lignes)
-    Colonnes mappées (3) :
-      [2] 'REGION' → region_brute
-      [3] 'DEPARTEMENT' → departement_brute
-      [4] 'SOUS\nPREFECTURE' → sous_prefecture_brute
-    Colonnes non mappées (52) :
-      'N°'
-      'DR SODECI'
-      'VILLAGE'
-      'CODE\nVILLAGE'
-      'POPULATION'
-      ... et 47 autres
-
-  → Mapping OK pour toutes les feuilles
+docker compose exec db psql -U dhr -d dhr -c "SELECT f.nom_feuille, COUNT(*), COUNT(*) FILTER (WHERE l.latitude_decimal IS NOT NULL) AS avec_coords FROM ligne_ingeree l JOIN feuille f ON f.id_feuille = l.id_feuille GROUP BY f.nom_feuille;"
+   nom_feuille   | count | avec_coords
+-----------------+-------+-------------
+ PMH             |  2103 |        2103
+ Autres_ouvrages |    18 |          18
+ PEA             |   172 |         172
+ HVA             |    86 |          86
+ Localités       |  1132 |        1132
+(5 rows)

@@ -1,8 +1,9 @@
 """
 Test d'ingestion réelle : parse + insère en base.
-Usage : python /app/scripts/test_ingestion_reelle.py /app/tests/fixtures/fichier1.xlsx
+Usage : docker compose exec backend python -u /app/scripts/test_ingestion_reelle.py /app/tests/fixtures/fichier1.xlsx 2>&1
 """
 import sys
+import traceback
 from pathlib import Path
 
 sys.path.insert(0, "/app")
@@ -18,17 +19,23 @@ def test(chemin: str) -> None:
     db = SessionLocal()
     try:
         path = Path(chemin)
-        print(f"\n{'='*70}")
-        print(f"Test d'ingestion réelle : {path.name}")
-        print(f"{'='*70}")
+        print(f"\n{'='*70}", flush=True)
+        print(f"Test d'ingestion réelle : {path.name}", flush=True)
+        print(f"{'='*70}", flush=True)
 
-        # Crée le Fichier + IngestionRun + Feuilles
+        if not path.exists():
+            print(f"[X] Fichier introuvable : {chemin}", flush=True)
+            return
+
+        # --- Source ---
         source = db.scalar(select(Source).limit(1))
         if source is None:
             source = Source(nom="TEST", type_source="autre", actif=True)
             db.add(source)
             db.flush()
+        print(f"[1] Source : {source.nom}", flush=True)
 
+        # --- Fichier ---
         fichier = Fichier(
             id_source=source.id_source,
             nom_fichier_original=path.name,
@@ -37,9 +44,14 @@ def test(chemin: str) -> None:
         )
         db.add(fichier)
         db.flush()
+        print(f"[2] Fichier créé : id={fichier.id_fichier}", flush=True)
 
-        # Détecte les feuilles
+        # --- Détection des feuilles ---
         feuilles_info = detecter_feuilles(chemin)
+        print(f"[3] {len(feuilles_info)} feuilles détectées", flush=True)
+        for fi in feuilles_info:
+            print(f"    - '{fi.nom}' ({fi.nb_lignes} lignes, header_row={fi.header_row})", flush=True)
+
         for fi in feuilles_info:
             feuille = Feuille(
                 id_fichier=fichier.id_fichier,
@@ -51,8 +63,9 @@ def test(chemin: str) -> None:
             )
             db.add(feuille)
         db.flush()
+        print(f"[4] {len(feuilles_info)} feuilles insérées en base", flush=True)
 
-        # Crée le run
+        # --- Run ---
         run = IngestionRun(
             id_fichier=fichier.id_fichier,
             mode="complet",
@@ -60,37 +73,43 @@ def test(chemin: str) -> None:
         )
         db.add(run)
         db.flush()
+        print(f"[5] Run créé : id={run.id_run}", flush=True)
 
-        # Ingrère
+        # --- Ingestion ---
+        print(f"[6] Lancement ingerer_fichier...", flush=True)
         resultat = ingerer_fichier(db, fichier, run, mode="complet")
+        print(f"[7] Ingestion terminée : {resultat}", flush=True)
+
+        # --- Commit ---
         db.commit()
+        print(f"[8] Commit OK", flush=True)
 
-        print(f"\nRésultat :")
-        print(f"  Total lignes ingérées : {resultat['total_lignes']}")
-        print(f"  Statut du run : {run.statut}")
-
-        # Vérifie en base
+        # --- Vérifications ---
         total = db.scalar(select(func.count()).select_from(LigneIngeree).where(
             LigneIngeree.id_run == run.id_run
         ))
-        print(f"  Lignes en base : {total}")
+        print(f"\n[9] Total lignes en base (run {run.id_run}) : {total}", flush=True)
 
-        # Stats de coordonnées
         avec_coords = db.scalar(select(func.count()).select_from(LigneIngeree).where(
             LigneIngeree.id_run == run.id_run,
             LigneIngeree.latitude_decimal.isnot(None),
             LigneIngeree.longitude_decimal.isnot(None),
         ))
-        print(f"  Avec coordonnées : {avec_coords} ({avec_coords/total*100:.1f}%)" if total else "")
+        if total:
+            print(f"[10] Avec coordonnées : {avec_coords} ({avec_coords/total*100:.1f}%)", flush=True)
 
-        # Affiche 3 exemples
-        print(f"\n  3 premiers enregistrements :")
+        # 3 exemples
+        print(f"\n[11] 3 premiers enregistrements :", flush=True)
         lignes = db.scalars(select(LigneIngeree).where(
             LigneIngeree.id_run == run.id_run
         ).limit(3)).all()
         for l in lignes:
-            print(f"    - localite={l.localite_brute!r}, lat={l.latitude_decimal}, lon={l.longitude_decimal}, type={l.type_ouvrage_brut!r}")
+            print(f"    - localite={l.localite_brute!r}, lat={l.latitude_decimal}, lon={l.longitude_decimal}, type={l.type_ouvrage_brut!r}", flush=True)
 
+    except Exception as e:
+        print(f"\n[X] EXCEPTION : {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
+        db.rollback()
     finally:
         db.close()
 
@@ -100,8 +119,3 @@ if __name__ == "__main__":
         print("Usage : python test_ingestion_reelle.py <fichier.xlsx>")
         sys.exit(1)
     test(sys.argv[1])
-
-"""
-docker compose exec backend python /app/scripts/test_ingestion_reelle.py /app/tests/fixtures/fichier1.xlsx
-docker compose exec backend python /app/scripts/test_ingestion_reelle.py /app/tests/fixtures/fichier2.xlsx
-"""

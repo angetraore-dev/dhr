@@ -52,6 +52,7 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
     ],
     "localite_brute": [
         re.compile(r"^localit[ée]", re.I),
+        re.compile(r"^village$", re.I),
         re.compile(r"^nom[_\s]village$", re.I),
         re.compile(r"q1\.5\.", re.I),
         re.compile(r"q1\.6\.", re.I),
@@ -63,21 +64,25 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
     # --- Coordonnées ---
     "latitude_decimal": [
         re.compile(r"^latitude$", re.I),
+        re.compile(r"^latitude\s*ouvrage$", re.I),
         re.compile(r"^lat$", re.I),
         re.compile(r"^y$", re.I),
     ],
     "longitude_decimal": [
         re.compile(r"^longitude$", re.I),
+        re.compile(r"^longitude\s*ouvrage$", re.I),
         re.compile(r"^lon(g)?$", re.I),
         re.compile(r"^x$", re.I),
     ],
     # --- Ouvrage ---
     "type_ouvrage_brut": [
         re.compile(r"^type[_\s]ouvrage$", re.I),
+        re.compile(r"^type_?\s*ouvrage$", re.I),
         re.compile(r"q3\.1\.\d+[a-z]?\.\s*type\s*d.?ouvrage", re.I),
     ],
     "etat_ouvrage_brut": [
         re.compile(r"^etat(_ouvrage)?$", re.I),
+        re.compile(r"^etat\s*ouvrage$", re.I),
         re.compile(r"^état(_ouvrage)?$", re.I),
         re.compile(r"^etat[_\s]forage$", re.I),
         re.compile(r"q3\.1\.\d+[a-z]?\.\s*[ée]tat\s*du\s*forage", re.I),
@@ -99,6 +104,7 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
         re.compile(r"^a[_\s]cgpe$", re.I),
         re.compile(r"existence[_\s]cgpe", re.I),
         re.compile(r"^nb[_\s]comite$", re.I),
+        re.compile(r"^organe\s*gestion$", re.I),
     ],
 }
 
@@ -278,10 +284,12 @@ def _extraire_lignes(
     ligne_debut: int | None,
     ligne_fin: int | None,
 ) -> list[dict[str, Any]]:
-    """Parcourt les lignes et normalise."""
+    """Parcourt les lignes et normalise. Itération unique (optimisé read_only)."""
     lignes: list[dict[str, Any]] = []
 
     start = mapping.header_row + 1
+    end = None
+
     if mode == "complet":
         end = ws.max_row
     elif mode == "echantillon":
@@ -292,14 +300,22 @@ def _extraire_lignes(
     else:
         raise HTTPException(status_code=400, detail=f"Mode invalide : {mode}")
 
-    for row_idx in range(start, end + 1):
-        row = list(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True))[0]
+    # Itération UNIQUE sur toutes les lignes (optimisé read_only)
+    for row_idx, row in enumerate(
+        ws.iter_rows(min_row=1, max_row=ws.max_row, values_only=True),
+        start=1,
+    ):
+        if row_idx < start:
+            continue
+        if end is not None and row_idx > end:
+            break
+
+        # Ignore les lignes vides
         if all(v is None or str(v).strip() == "" for v in row):
             continue
 
         record: dict[str, Any] = {"num_ligne_source": row_idx}
 
-        # Champs mappés
         for col_idx, champ in mapping.colonnes_mappees.items():
             if col_idx < len(row):
                 record[champ] = row[col_idx]
@@ -429,6 +445,10 @@ def ingerer_fichier(
     resultats = []
 
     for feuille in feuilles:
+        # Capture les attributs AVANT le try (évite PendingRollbackError)
+        feuille_id = feuille.id_feuille
+        feuille_nom = feuille.nom_feuille
+
         try:
             nb = ingerer_feuille(
                 db, feuille, run, mode, limite_lignes, ligne_debut, ligne_fin,
@@ -436,19 +456,24 @@ def ingerer_fichier(
             )
             total += nb
             resultats.append({
-                "id_feuille": feuille.id_feuille,
-                "nom_feuille": feuille.nom_feuille,
+                "id_feuille": feuille_id,
+                "nom_feuille": feuille_nom,
                 "statut": "ok",
                 "nb_lignes": nb,
             })
         except Exception as e:
-            logger.error("Erreur feuille %s : %s", feuille.nom_feuille, e)
-            feuille.statut_ingestion = "erreur"
-            feuille.message_erreur = str(e)
-            db.flush()
+            # Rollback AVANT d'accéder aux attributs ORM
+            db.rollback()
+            logger.error("Erreur feuille %s : %s", feuille_nom, e)
+            # Recharge la feuille (après rollback)
+            feuille = db.get(Feuille, feuille_id)
+            if feuille is not None:
+                feuille.statut_ingestion = "erreur"
+                feuille.message_erreur = str(e)
+                db.flush()
             resultats.append({
-                "id_feuille": feuille.id_feuille,
-                "nom_feuille": feuille.nom_feuille,
+                "id_feuille": feuille_id,
+                "nom_feuille": feuille_nom,
                 "statut": "erreur",
                 "message": str(e),
             })

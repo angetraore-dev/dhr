@@ -555,3 +555,14 @@ CREATE INDEX IF NOT EXISTS idx_cgpe_metadata     ON cgpe     USING gin (metadata
 -- =====================================================================
 -- 10. FIN
 -- =====================================================================
+
+CREATE TABLE IF NOT EXISTS mapping_feuille (
+                                 id_mapping serial PRIMARY KEY,
+                                 id_feuille bigint NOT NULL REFERENCES feuille(id_feuille) ON DELETE CASCADE,
+                                 id_colonne int NOT NULL,                    -- index de la colonne dans l'Excel
+                                 entete_brut varchar(255) NOT NULL,
+                                 champ_cible varchar(100),                   -- ex. 'localite_brute', NULL si ignoré
+                                 confiance numeric(3,2),                     -- 0.00 à 1.00
+                                 valide_par_utilisateur boolean DEFAULT false,
+                                 created_at timestamptz DEFAULT now()
+);
