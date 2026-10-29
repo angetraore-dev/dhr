@@ -50,16 +50,16 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
         re.compile(r"commune\s*/\s*sous[_\s-]?pr[ée]fecture", re.I),
         re.compile(r"q1\.4\.", re.I),
     ],
+    "type_localite_brut": [
+        re.compile(r"^type[_\s]localit[ée]", re.I),
+        re.compile(r"^localit[ée][_\s]ou[_\s]campement$", re.I),  # ← ajouter
+    ],
     "localite_brute": [
-        re.compile(r"^localit[ée]", re.I),
+        re.compile(r"^localit[ée]$", re.I),   # ← seulement "Localité" seul
         re.compile(r"^village$", re.I),
         re.compile(r"^nom[_\s]village$", re.I),
         re.compile(r"q1\.5\.", re.I),
         re.compile(r"q1\.6\.", re.I),
-    ],
-    "type_localite_brut": [
-        re.compile(r"^type[_\s]localit[ée]", re.I),
-        re.compile(r"localit[ée][_\s]ou[_\s]campement", re.I),
     ],
     # --- Coordonnées ---
     "latitude_decimal": [
@@ -152,6 +152,23 @@ def _to_bool(val: Any) -> bool | None:
         return False
     return None
 
+def _to_float(s: str) -> float | None:
+    """Convertit une chaîne en float, gère la virgule. Retourne None si invalide."""
+    try:
+        return float(s.replace(",", ".").strip())
+    except (ValueError, AttributeError):
+        return None
+
+def _serialiser_valeur(val: Any) -> Any:
+    from datetime import date, datetime, time
+    if val is None:
+        return None
+    if isinstance(val, (datetime, date, time)):
+        return val.isoformat()
+    if isinstance(val, (int, float, str, bool)):
+        return val
+    # Fallback : str
+    return str(val)
 
 # =====================================================================
 # 1. Détection des feuilles
@@ -252,22 +269,28 @@ class MappingFeuille:
 
 
 def _analyser_entetes(entetes: list[str], index_feuille: int, header_row: int) -> MappingFeuille:
-    """À partir des entêtes, détecte les colonnes mappées."""
     mapping = MappingFeuille(index_feuille=index_feuille, header_row=header_row, entetes=entetes)
+    champs_deja_mappes: set[str] = set()
 
     for col_idx, entete in enumerate(entetes):
         if not entete or not entete.strip():
             continue
-        matched = False
+        entete_norm = _normaliser(entete)
+        matched_champ = None
         for champ, patterns in COLUMN_PATTERNS.items():
+            if champ in champs_deja_mappes:
+                continue
             for pat in patterns:
-                if pat.search(entete):
-                    mapping.colonnes_mappees[col_idx] = champ
-                    matched = True
+                if pat.search(entete_norm):
+                    matched_champ = champ
                     break
-            if matched:
+            if matched_champ:
                 break
-        if not matched:
+
+        if matched_champ:
+            mapping.colonnes_mappees[col_idx] = matched_champ
+            champs_deja_mappes.add(matched_champ)
+        else:
             mapping.colonnes_non_mappees.append(entete)
 
     return mapping
@@ -318,7 +341,10 @@ def _extraire_lignes(
 
         for col_idx, champ in mapping.colonnes_mappees.items():
             if col_idx < len(row):
-                record[champ] = row[col_idx]
+               val = row[col_idx]
+               if val is not None and str(val).strip() != "":
+                   if champ not in record or record[champ] is None or str(record[champ]).strip() == "":
+                      record[champ] = val
 
         # Conversion coordonnées
         lat_brut = record.get("latitude_decimal")
@@ -331,7 +357,7 @@ def _extraire_lignes(
         brut: dict[str, Any] = {}
         for col_idx, val in enumerate(row):
             if col_idx < len(mapping.entetes) and val is not None and mapping.entetes[col_idx]:
-                brut[mapping.entetes[col_idx]] = val
+                brut[mapping.entetes[col_idx]] = _serialiser_valeur(val)
         record["donnees_brutes"] = brut
 
         lignes.append(record)
@@ -462,9 +488,10 @@ def ingerer_fichier(
                 "nb_lignes": nb,
             })
         except Exception as e:
+            import traceback
             # Rollback AVANT d'accéder aux attributs ORM
             db.rollback()
-            logger.error("Erreur feuille %s : %s", feuille_nom, e)
+            logger.exception("Erreur feuille %s : %s", feuille_nom, e,) #  traceback.format_exc()
             # Recharge la feuille (après rollback)
             feuille = db.get(Feuille, feuille_id)
             if feuille is not None:

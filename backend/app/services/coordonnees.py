@@ -79,20 +79,25 @@ def parser_une_coordonnee(brut: Any, est_latitude: bool) -> float | None:
             return val if (est_latitude and _is_valid_lat(val)) or (not est_latitude and _is_valid_lon(val)) else None
         return None
 
-    # --- Cas 2 : DMS explicite (7°52'25"N / 7° 52' 25.5" S) ---
+    # --- Cas 2 : DMS explicite (7°52'25"N / 7° 52' 25.5" S / 8°2'20,93"W) ---
     m = re.match(
-        r"^\s*(-?\d+)[°\s]+(\d+)[\'\s]+([\d.]+)[\"\s]*([NSEW])?\s*$",
+        r"^\s*(-?\d+)[°\s]+(\d+)[\'\s]+([\d.,]+)[\"\s]*([NSEW])?\s*$",
         s, re.IGNORECASE,
     )
     if m:
-        deg = float(m.group(1))
-        min_ = float(m.group(2))
-        sec = float(m.group(3))
-        direction = m.group(4)
-        val = _dms_to_decimal(abs(deg), min_, sec, direction)
-        if deg < 0:
-            val = -val
-        return val if (est_latitude and _is_valid_lat(val)) or (not est_latitude and _is_valid_lon(val)) else None
+        try:
+            deg = float(m.group(1))
+            min_ = float(m.group(2))
+            sec = float(m.group(3).replace(",", "."))  # ← virgule → point
+            direction = m.group(4)
+            if min_ >= 60 or sec >= 60:
+                return None
+            val = _dms_to_decimal(abs(deg), min_, sec, direction)
+            if deg < 0:
+                val = -val
+            return val if (est_latitude and _is_valid_lat(val)) or (not est_latitude and _is_valid_lon(val)) else None
+        except (ValueError, TypeError):
+            return None
 
     # --- Cas 3 : Direction + décimal (6.3658183 N) ---
     m = re.match(r"^\s*(-?[\d.,]+)\s*([NSEW])\s*$", s, re.IGNORECASE)
