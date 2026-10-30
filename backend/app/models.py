@@ -131,8 +131,8 @@ class RefGeoAdmin(Base):
             name="ref_geo_admin_type_localite_check",
         ),
         CheckConstraint(
-            "(niveau = 'localite' AND type_localite IS NOT NULL) "
-            "OR (niveau <> 'localite' AND type_localite IS NULL)",
+            "(niveau <> 'localite' AND type_localite IS NULL) "
+            "OR (niveau = 'localite')",
             name="chk_ref_geo_type_localite",
         ),
         CheckConstraint(
