@@ -68,3 +68,5 @@ logs/
 backend/alembic/env.py
 backend/alembic/versions/a3187e43649b_initial_schema.py.bak
 sheet.txt
+# Fichiers temporaires de commit
+commit_msg.txt
