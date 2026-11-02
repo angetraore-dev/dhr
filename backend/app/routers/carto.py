@@ -1,5 +1,8 @@
 """
 Router carto : endpoints GeoJSON pour l'UI cartographique.
+
+On utilise ST_AsGeoJSON() côté SQL pour éviter les problèmes de conversion
+WKB (les colonnes générées geom ne sont pas déclarées en ORM).
 """
 from __future__ import annotations
 
@@ -8,7 +11,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import func, literal_column, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth import require_api_key
@@ -25,20 +28,34 @@ router = APIRouter(
 # =====================================================================
 # Helpers GeoJSON
 # =====================================================================
-def _ligne_to_feature(ligne: LigneIngeree, fichier: Fichier) -> dict[str, Any] | None:
-    """Convertit une ligne ingérée en Feature GeoJSON."""
-    if ligne.geom is None:
+def _parse_geojson_geom(geojson_str: str | None) -> dict[str, Any] | None:
+    """Parse une chaîne GeoJSON (ST_AsGeoJSON) en dict {type, coordinates}."""
+    if not geojson_str:
         return None
     try:
-        from geoalchemy2.shape import to_shape
-        shape = to_shape(ligne.geom)
-    except Exception:
+        data = json.loads(geojson_str)
+        return {
+            "type": data.get("type", "Point"),
+            "coordinates": data.get("coordinates"),
+        }
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _ligne_to_feature(
+    ligne: LigneIngeree,
+    fichier: Fichier,
+    geojson_str: str | None,
+) -> dict[str, Any] | None:
+    """Convertit une ligne ingérée en Feature GeoJSON."""
+    geom = _parse_geojson_geom(geojson_str)
+    if geom is None:
         return None
 
     return {
         "type": "Feature",
         "id": str(ligne.id_ligne),
-        "geometry": {"type": "Point", "coordinates": [shape.x, shape.y]},
+        "geometry": geom,
         "properties": {
             "id_ligne": ligne.id_ligne,
             "id_fichier": fichier.id_fichier,
@@ -50,20 +67,19 @@ def _ligne_to_feature(ligne: LigneIngeree, fichier: Fichier) -> dict[str, Any] |
     }
 
 
-def _ouvrage_to_feature(o: Ouvrage) -> dict[str, Any] | None:
+def _ouvrage_to_feature(
+    o: Ouvrage,
+    geojson_str: str | None,
+) -> dict[str, Any] | None:
     """Convertit un ouvrage en Feature GeoJSON."""
-    if o.geom is None:
-        return None
-    try:
-        from geoalchemy2.shape import to_shape
-        shape = to_shape(o.geom)
-    except Exception:
+    geom = _parse_geojson_geom(geojson_str)
+    if geom is None:
         return None
 
     return {
         "type": "Feature",
         "id": str(o.id_ouvrage),
-        "geometry": {"type": "Point", "coordinates": [shape.x, shape.y]},
+        "geometry": geom,
         "properties": {
             "id_ouvrage": o.id_ouvrage,
             "code_ouvrage": o.code_ouvrage,
@@ -83,10 +99,7 @@ def _build_feature_collection_fichier(
     type_ouvrage: str | None,
     db: Session,
 ) -> dict[str, Any]:
-    """
-    Logique métier partagée par points_fichier et telecharger_geojson_fichier.
-    N'est PAS une route FastAPI (pas de décorateur).
-    """
+    """Logique métier partagée par points_fichier et telecharger_geojson_fichier."""
     fichier = db.get(Fichier, id_fichier)
     if fichier is None:
         raise HTTPException(
@@ -109,7 +122,12 @@ def _build_feature_collection_fichier(
             },
         }
 
-    stmt = select(LigneIngeree).where(LigneIngeree.id_feuille.in_(feuilles_ids))
+    # ST_AsGeoJSON : convertit la géométrie en chaîne JSON directement en SQL
+    stmt = select(
+        LigneIngeree,
+        func.ST_AsGeoJSON(literal_column("ligne_ingeree.geom")).label("geojson"),
+    ).where(LigneIngeree.id_feuille.in_(feuilles_ids))
+
     if id_feuille is not None:
         stmt = stmt.where(LigneIngeree.id_feuille == id_feuille)
     if id_run is not None:
@@ -119,10 +137,14 @@ def _build_feature_collection_fichier(
     if type_ouvrage is not None:
         stmt = stmt.where(LigneIngeree.type_ouvrage_brut == type_ouvrage)
 
-    lignes = db.scalars(stmt).all()
-    features = [
-        f for f in (_ligne_to_feature(l, fichier) for l in lignes) if f is not None
-    ]
+    rows = db.execute(stmt).all()
+    features: list[dict[str, Any]] = []
+    for row in rows:
+        ligne = row[0]
+        geojson_str = row[1]
+        feature = _ligne_to_feature(ligne, fichier, geojson_str)
+        if feature is not None:
+            features.append(feature)
 
     return {
         "type": "FeatureCollection",
@@ -136,7 +158,7 @@ def _build_feature_collection_fichier(
 
 
 # =====================================================================
-# POINTS D'UN FICHIER (route)
+# POINTS D'UN FICHIER
 # =====================================================================
 @router.get(
     "/carto/fichiers/{id_fichier}/points",
@@ -176,7 +198,10 @@ def points_tous(
     filters: OuvrageFilters = Depends(),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Ouvrage).options(
+    stmt = select(
+        Ouvrage,
+        func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
+    ).options(
         selectinload(Ouvrage.type_ouvrage),
         selectinload(Ouvrage.localite),
     )
@@ -190,8 +215,14 @@ def points_tous(
     if filters.annee_max is not None:
         stmt = stmt.where(Ouvrage.annee_realisation <= filters.annee_max)
 
-    ouvrages = db.scalars(stmt).all()
-    features = [f for f in (_ouvrage_to_feature(o) for o in ouvrages) if f is not None]
+    rows = db.execute(stmt).all()
+    features: list[dict[str, Any]] = []
+    for row in rows:
+        o = row[0]
+        geojson_str = row[1]
+        feature = _ouvrage_to_feature(o, geojson_str)
+        if feature is not None:
+            features.append(feature)
 
     return {
         "type": "FeatureCollection",

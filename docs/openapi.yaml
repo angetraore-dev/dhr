@@ -32,6 +32,11 @@ info:
         
         Les filtres sont **identiques** à `GET /ouvrages`. Limite :
         `MAX_EXPORT_ROWS` (défaut 100 000), au-delà → 413.
+        
+        ## Mapping UI
+        Deux endpoints permettent à l'UI de proposer et valider le mapping :
+        - `GET /fichiers/{id}/mapping-proposal` → proposition auto
+        - `PUT /fichiers/{id}/mapping` → sauvegarde du mapping validé
 
 servers:
     - url: https://api.dhr.local/v1
@@ -327,6 +332,59 @@ paths:
                                     pagination: { $ref: '#/components/schemas/PaginationOffset' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
 
+    /fichiers/{id}/mapping-proposal:
+        get:
+            tags: [Fichiers]
+            summary: Proposition de mapping automatique
+            description: |
+                Retourne, pour chaque feuille du fichier, la liste des entêtes
+                avec le champ cible proposé (mapping auto) et un score de confiance.
+                Utilisé par l'UI de mapping pour afficher les conclusions du backend.
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema: { type: integer, format: int64 }
+            responses:
+                '200':
+                    description: Proposition de mapping
+                    content:
+                        application/json:
+                            schema:
+                                type: array
+                                items: { $ref: '#/components/schemas/MappingProposalFeuille' }
+                '404': { $ref: '#/components/responses/NotFound' }
+                '401': { $ref: '#/components/responses/Unauthorized' }
+
+    /fichiers/{id}/mapping:
+        put:
+            tags: [Fichiers]
+            summary: Sauvegarde le mapping validé par l'utilisateur
+            description: |
+                Sauvegarde le mapping corrigé par l'utilisateur.
+                L'ingestion utilisera ce mapping en priorité.
+            security:
+                - BearerAuth: []
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema: { type: integer, format: int64 }
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema: { $ref: '#/components/schemas/MappingValidation' }
+            responses:
+                '200':
+                    description: Mapping sauvegardé
+                    content:
+                        application/json:
+                            schema: { $ref: '#/components/schemas/MappingProposalFeuille' }
+                '400': { $ref: '#/components/responses/BadRequest' }
+                '401': { $ref: '#/components/responses/Unauthorized' }
+                '403': { $ref: '#/components/responses/Forbidden' }
+                '404': { $ref: '#/components/responses/NotFound' }
     # ============================================================
     # INGESTION
     # ============================================================
@@ -1054,6 +1112,44 @@ components:
                     type: string
                     enum: [en_attente, en_cours, ingere, partiel, erreur]
                 message_erreur: { type: string, nullable: true }
+
+        # ----- Mapping -----
+        MappingColonne:
+            type: object
+            properties:
+                id_mapping: { type: integer, nullable: true }
+                entete_brut: { type: string }
+                champ_cible: { type: string, nullable: true }
+                confiance: { type: number, nullable: true, minimum: 0, maximum: 1 }
+                valide_par_utilisateur: { type: boolean }
+
+        MappingProposalFeuille:
+            type: object
+            properties:
+                id_feuille: { type: integer, format: int64 }
+                nom_feuille: { type: string }
+                header_row: { type: integer }
+                colonnes:
+                    type: array
+                    items: { $ref: '#/components/schemas/MappingColonne' }
+
+        MappingValidation:
+            type: object
+            required: [colonnes]
+            properties:
+                colonnes:
+                    type: array
+                    items:
+                        type: object
+                        required: [entete_brut, champ_cible]
+                        properties:
+                            entete_brut: { type: string }
+                            champ_cible:
+                                type: string
+                                nullable: true
+                                description: |
+                                    Champ cible (ex. 'region_brute', 'localite_brute').
+                                    NULL = colonne ignorée (va dans donnees_brutes).
 
         # ----- Ingestion -----
         IngestionRun:

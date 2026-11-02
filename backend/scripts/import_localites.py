@@ -1,6 +1,6 @@
 """
 Import des localités depuis fichier1.xlsx (feuille 'Localités').
-Usage : python /app/scripts/import_localites.py /app/tests/fixtures/fichier1.xlsx
+Usage : docker compose exec backend python -u /app/scripts/import_localites.py /app/tests/fixtures/fichier1.xlsx
 """
 import sys
 sys.path.insert(0, "/app")

@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
 from app.schemas.referentiels import Source
-
 
 # ----- Fichier -----
 class Fichier(BaseModel):
@@ -44,3 +44,29 @@ class Feuille(BaseModel):
         "en_attente", "en_cours", "ingere", "partiel", "erreur"
     ]
     message_erreur: str | None = None
+
+# ----- Mapping -----
+class MappingColonne(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id_mapping: int | None = None
+    entete_brut: str
+    champ_cible: str | None = None
+    confiance: Decimal | None = None
+    valide_par_utilisateur: bool
+
+
+class MappingProposalFeuille(BaseModel):
+    id_feuille: int
+    nom_feuille: str
+    header_row: int
+    colonnes: list[MappingColonne]
+
+
+class MappingValidationColonne(BaseModel):
+    entete_brut: str
+    champ_cible: str | None = None
+
+
+class MappingValidation(BaseModel):
+    colonnes: list[MappingValidationColonne]

@@ -16,6 +16,15 @@ from app.models import Feuille, Fichier
 from app.schemas.common import PaginatedOffset
 from app.schemas.fichiers import Fichier as FichierSchema, Feuille as FeuilleSchema
 from app.schemas.referentiels import Source as SourceSchema
+from app.auth import require_api_key, require_jwt, JWTUser
+from app.schemas.fichiers import (
+    MappingProposalFeuille,
+    MappingValidation,
+)
+from app.services.mapping import (
+    proposer_mapping_fichier,
+    sauvegarder_mapping_feuille,
+)
 
 router = APIRouter(
     tags=["Fichiers"],
@@ -138,3 +147,59 @@ def list_feuilles_fichier(
         data=[FeuilleSchema.model_validate(r) for r in rows],
         pagination=pagination.to_response(total=total),
     )
+
+# =====================================================================
+# MAPPING
+# =====================================================================
+
+@router.get(
+    "/fichiers/{id}/mapping-proposal",
+    response_model=list[MappingProposalFeuille],
+    summary="Proposition de mapping automatique",
+)
+def get_mapping_proposal(id: int, db: Session = Depends(get_db)):
+    """
+    Retourne, pour chaque feuille du fichier, la liste des entêtes
+    avec le champ cible proposé (mapping auto) et un score de confiance.
+    Si un mapping validé existe, il est retourné à la place.
+    """
+    try:
+        return proposer_mapping_fichier(db, id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.put(
+    "/fichiers/{id}/mapping",
+    response_model=MappingProposalFeuille,
+    summary="Sauvegarde le mapping validé par l'utilisateur",
+)
+def put_mapping(
+    id: int,
+    payload: MappingValidation,
+    id_feuille: int | None = Query(None, description="Feuille cible (défaut: première feuille)"),
+    db: Session = Depends(get_db),
+    user: JWTUser = Depends(require_jwt),
+):
+    fichier = db.get(Fichier, id)
+    if fichier is None:
+        raise HTTPException(status_code=404, detail=f"Fichier {id} introuvable")
+
+    if id_feuille is not None:
+        feuille = db.get(Feuille, id_feuille)
+        if feuille is None or feuille.id_fichier != id:
+            raise HTTPException(status_code=404, detail=f"Feuille {id_feuille} introuvable pour le fichier {id}")
+    else:
+        feuille = db.scalar(
+            select(Feuille).where(Feuille.id_fichier == id).order_by(Feuille.index_feuille).limit(1)
+        )
+        if feuille is None:
+            raise HTTPException(status_code=404, detail=f"Aucune feuille pour le fichier {id}")
+
+    try:
+        result = sauvegarder_mapping_feuille(db, feuille.id_feuille, payload.colonnes)
+        db.commit()
+        return result
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))

@@ -133,6 +133,15 @@ package "Ingestion" as PKG_ING {
         + created_at : timestamp
     }
 
+    class MappingFeuille <<table>> {
+        + id_mapping : int {id}
+        + entete_brut : string
+        + champ_cible : string
+        + confiance : decimal
+        + valide_par_utilisateur : boolean
+        + created_at : timestamp
+    }
+
     enum TypeContenu <<enum>> {
         ouvrages
         cgpe
@@ -346,6 +355,7 @@ Localite "1" -- "0..*" LocaliteAlias : alias
 ' =========================================================
 Source "1" -- "0..*" Fichier : émet
 Fichier "1" *-- "1..*" Feuille : contient
+Feuille "1" *-- "0..*" MappingFeuille : a_un_mapping
 Feuille "1" -- "0..*" IngestionRun : exécute
 Fichier "1" -- "0..*" IngestionRun : exécute
 IngestionRun "1" *-- "0..*" LigneIngeree : produit
@@ -451,6 +461,14 @@ note as N_EXT
   - pg_trgm (recherche floue rapide)
 
   postgis_topology : **NON retenu** (MVP)
+end note
+
+note bottom of MappingFeuille
+  Stocke le mapping validé par l'utilisateur
+  (UI Phase 6).
+  champ_cible = NULL → colonne ignorée
+  (va dans donnees_brutes).
+  UNIQUE (id_feuille, entete_brut).
 end note
 
 @enduml

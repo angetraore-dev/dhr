@@ -46,34 +46,59 @@ Toute clé ajoutée dans un `metadata` doit respecter :
 
 ### 4.1 `localite.metadata`
 
-| Clé | Type | Unité | Description | Sources connues |
-|---|---|---|---|---|
-| `population_estimee` | number | habitants | Population estimée de la localité | ONEP, UNICEF |
-| `existence_ecole` | boolean | — | Présence d'une école | ONEP |
-| `existence_dispensaire` | boolean | — | Présence d'un dispensaire | ONEP |
-| `type_habitat` | string | — | Type d'habitat dominant (ex. "habitat dispersé") | ONEP |
-| `accessibilite_routiere` | string | — | Accessibilité (ex. "piste dégradée") | UNICEF |
+| Clé                      | Type    | Unité     | Description                                      | Sources connues |
+|--------------------------|---------|-----------|--------------------------------------------------|-----------------|
+| `population_estimee`     | number  | habitants | Population estimée de la localité                | ONEP, UNICEF    |
+| `existence_ecole`        | boolean | —         | Présence d'une école                             | ONEP            |
+| `existence_dispensaire`  | boolean | —         | Présence d'un dispensaire                        | ONEP            |
+| `type_habitat`           | string  | —         | Type d'habitat dominant (ex. "habitat dispersé") | ONEP            |
+| `accessibilite_routiere` | string  | —         | Accessibilité (ex. "piste dégradée")             | UNICEF          |
 
 ### 4.2 `ouvrage.metadata`
 
-| Clé | Type | Unité | Description | Sources connues |
-|---|---|---|---|---|
-| `profondeur_forage_m` | number | m | Profondeur totale du forage | ONEP, UNICEF |
-| `debit_l_s` | number | L/s | Débit nominal de l'ouvrage | ONEP |
-| `nom_prestataire` | string | — | Nom de l'entreprise réalisatrice | UNICEF, BAD |
-| `date_mise_en_service` | string (ISO 8601) | — | Date de mise en service | ONEP |
-| `observations_terrain` | string | — | Observations libres de l'agent | ONEP, UNICEF |
+| Clé                    | Type              | Unité | Description                      | Sources connues |
+|------------------------|-------------------|-------|----------------------------------|-----------------|
+| `profondeur_forage_m`  | number            | m     | Profondeur totale du forage      | ONEP, UNICEF    |
+| `debit_l_s`            | number            | L/s   | Débit nominal de l'ouvrage       | ONEP            |
+| `nom_prestataire`      | string            | —     | Nom de l'entreprise réalisatrice | UNICEF, BAD     |
+| `date_mise_en_service` | string (ISO 8601) | —     | Date de mise en service          | ONEP            |
+| `observations_terrain` | string            | —     | Observations libres de l'agent   | ONEP, UNICEF    |
 
 ### 4.3 `cgpe.metadata`
 
-| Clé | Type | Unité | Description | Sources connues |
-|---|---|---|---|---|
-| `nom_president` | string | — | Nom du président du CGPE | ONEP |
-| `contact_president` | string | — | Téléphone du président | ONEP |
-| `date_derniere_reunion` | string (ISO 8601) | — | Date de la dernière réunion | UNICEF |
+| Clé                     | Type              | Unité | Description                 | Sources connues |
+|-------------------------|-------------------|-------|-----------------------------|-----------------|
+| `nom_president`         | string            | —     | Nom du président du CGPE    | ONEP            |
+| `contact_president`     | string            | —     | Téléphone du président      | ONEP            |
+| `date_derniere_reunion` | string (ISO 8601) | —     | Date de la dernière réunion | UNICEF          |
 
 > **Ajouter une clé** : ouvrir une PR qui modifie ce fichier + le code d'ingestion
 > qui la reconnaît. Une clé non documentée ici ne doit pas être ajoutée en base.
+
+### 4.4 `mapping_feuille.champ_cible`
+
+La colonne `mapping_feuille.champ_cible` contient le **champ cible** validé par l'utilisateur pour chaque entête Excel.
+
+**Valeurs autorisées** (identiques à `COLUMN_PATTERNS` dans `services/ingestion.py`) :
+
+| Valeur                  | Description                                |
+|-------------------------|--------------------------------------------|
+| `region_brute`          | Région                                     |
+| `departement_brute`     | Département                                |
+| `sous_prefecture_brute` | Sous-préfecture / Commune                  |
+| `localite_brute`        | Nom de la localité                         |
+| `type_localite_brut`    | Type (village / campement)                 |
+| `latitude_decimal`      | Latitude                                   |
+| `longitude_decimal`     | Longitude                                  |
+| `type_ouvrage_brut`     | Type d'ouvrage (PMH, HVA, PEA…)            |
+| `etat_ouvrage_brut`     | État de l'ouvrage                          |
+| `annee_projet`          | Année du projet                            |
+| `bailleur_brut`         | Bailleur / financeur                       |
+| `type_financement_brut` | Type de financement                        |
+| `a_cgpe`                | Existence d'un CGPE                        |
+| `NULL`                  | Colonne ignorée (va dans `donnees_brutes`) |
+
+**Règle** : une colonne sans `champ_cible` (NULL) est conservée dans `donnees_brutes` mais n'est pas normalisée.
 
 ## 5. Ce qu'il ne faut **pas** mettre dans `metadata`
 
@@ -85,6 +110,8 @@ Toute clé ajoutée dans un `metadata` doit respecter :
 - Les données personnelles sensibles sans base légale (RGPD) → à traiter
   séparément si besoin.
 - Les fichiers binaires ou les URLs temporaires.
+- Les champs de `mapping_feuille` (ce sont des métadonnées de mapping, pas des métadonnées d'entité).
+
 
 ## 6. Requêtes utiles
 

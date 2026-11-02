@@ -306,8 +306,40 @@ class Feuille(Base):
     lignes: Mapped[list[LigneIngeree]] = relationship(
         back_populates="feuille", cascade="all, delete-orphan"
     )
+    mappings: Mapped[list[MappingFeuille]] = relationship(
+        back_populates="feuille", cascade="all, delete-orphan"
+    )
     runs: Mapped[list[IngestionRun]] = relationship(back_populates="feuille")
 
+class MappingFeuille(Base):
+    """Mapping validé par l'utilisateur pour une feuille."""
+
+    __tablename__ = "mapping_feuille"
+
+    id_mapping: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id_feuille: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("feuille.id_feuille", ondelete="CASCADE"), nullable=False
+    )
+    entete_brut: Mapped[str] = mapped_column(String(255), nullable=False)
+    champ_cible: Mapped[str | None] = mapped_column(String(100))
+    confiance: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
+    valide_par_utilisateur: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "confiance IS NULL OR (confiance >= 0 AND confiance <= 1)",
+            name="mapping_feuille_confiance_check",
+        ),
+        UniqueConstraint("id_feuille", "entete_brut", name="uq_mapping_feuille_entete"),
+        Index("idx_mapping_feuille_feuille", "id_feuille"),
+    )
+
+    feuille: Mapped[Feuille] = relationship(back_populates="mappings")
 
 class IngestionRun(Base):
     """Exécution d'ingestion avec paramètres choisis par l'utilisateur."""

@@ -139,6 +139,28 @@
 
 **Index** : `idx_feuille_fichier`.
 
+### 2.7bis `mapping_feuille`
+
+| Colonne | Type | Contrainte |
+|---|---|---|
+| id_mapping | `serial` | PK |
+| id_feuille | `bigint` | NOT NULL, FK → feuille(id_feuille) ON DELETE CASCADE |
+| entete_brut | `varchar(255)` | NOT NULL |
+| champ_cible | `varchar(100)` | nullable (NULL = colonne ignorée → `donnees_brutes`) |
+| confiance | `numeric(3,2)` | CHECK (0.00 ≤ confiance ≤ 1.00) |
+| valide_par_utilisateur | `boolean` | NOT NULL DEFAULT false |
+| created_at | `timestamptz` | NOT NULL DEFAULT now() |
+| — | — | **UNIQUE (id_feuille, entete_brut)** |
+
+**Index** : `idx_mapping_feuille_feuille` sur `(id_feuille)`.
+
+**Commentaire** : cette table stocke le mapping validé par l'utilisateur (via l'UI). Elle permet de :
+- Proposer un mapping automatique (via `GET /fichiers/{id}/mapping-proposal`)
+- Corriger et sauvegarder le mapping (via `PUT /fichiers/{id}/mapping`)
+- Utiliser le mapping sauvegardé lors de l'ingestion (au lieu du mapping auto)
+
+**Valeurs de `champ_cible`** : identiques à celles de `COLUMN_PATTERNS` dans `services/ingestion.py` (`region_brute`, `localite_brute`, `type_localite_brut`, etc.). `NULL` = colonne ignorée (sera dans `donnees_brutes`).
+
 ### 2.8 `ingestion_run`
 
 | Colonne            | Type          | Contrainte                                                                     |
@@ -376,6 +398,7 @@ mais non exposé dans l'UI au MVP.
 | **Capturer les données non mappées**                  | `localite.metadata`, `ouvrage.metadata`, `cgpe.metadata` (jsonb) + `ligne_ingeree.donnees_brutes` |
 | `updated_at` toujours à jour                          | Trigger générique sur 7 tables                                                                    |
 | Export tabulaire streamé                              | `yield_per(5000)` + `openpyxl` write_only, limite `MAX_EXPORT_ROWS`                               |
+| **Mapping validé par l'utilisateur**                  | Table `mapping_feuille`, unicité `(id_feuille, entete_brut)`                                      |
 
 ---
 
@@ -400,3 +423,4 @@ mais non exposé dans l'UI au MVP.
 | 1.0     | 2026-10-23 | Version initiale (MCDR + MLDR + schema.sql)                                                           |
 | 1.1     | 2026-10-23 | Ajout `metadata jsonb` sur `localite`, `ouvrage`, `cgpe` + index GIN + `docs/metadata_conventions.md` |
 | 1.2     | 2026-10-26 | Ajout export Excel/CSV (endpoints `GET /ouvrages/export` et `GET /ouvrages/export.csv`)               |
+| 1.3     | 2026-11-02 | Ajout table `mapping_feuille` (mapping UI)                                                            |

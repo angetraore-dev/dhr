@@ -76,6 +76,15 @@ package "Ingestion" {
         statut_ingestion
     }
 
+    entity "MappingFeuille" as MAPPING {
+        * id_mapping
+        --
+        entete_brut
+        champ_cible
+        confiance
+        valide_par_utilisateur
+    }
+
     entity "IngestionRun" as RUN {
         * id_run
         --
@@ -154,6 +163,7 @@ LOCALITE ||--o{ ALIAS : "possède"
 ' -- Ingestion
 SOURCE ||--o{ FICHIER : "émet"
 FICHIER ||--|{ FEUILLE : "contient"
+FEUILLE ||--o{ MAPPING : "a un mapping"
 FICHIER ||--o{ RUN : "exécute"
 FEUILLE ||--o{ RUN : "exécute sur"
 RUN ||--o{ LIGNE : "produit"
@@ -209,6 +219,13 @@ note bottom of OUVRAGE_PROJET
   Porte role_financement
   (principal / co_financement)
   → gère le co-financement État + bailleur.
+end note
+
+note bottom of MAPPING
+  Mapping validé par l'utilisateur.
+  champ_cible NULL = colonne ignorée.
+  Permet de corriger le mapping auto
+  via l'UI (Phase 6).
 end note
 
 @enduml
