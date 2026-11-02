@@ -4,11 +4,12 @@ Router des ouvrages consolidés et CGPE.
 from __future__ import annotations
 
 import base64
-from typing import Literal
+import json
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, literal_column, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth import require_api_key
@@ -31,7 +32,6 @@ from app.schemas.ouvrages import (
 )
 from app.schemas.referentiels import LocaliteResume
 from app.services.export import (
-    _check_export_limit,
     export_ouvrages_csv,
     export_ouvrages_xlsx,
     filename_csv,
@@ -61,7 +61,24 @@ def _decode_cursor(cursor: str) -> int:
         )
 
 
-def _build_ouvrage_schema(o: Ouvrage, include_metadata: bool) -> OuvrageSchema:
+def _parse_geojson(geojson_str: str | None) -> dict[str, Any] | None:
+    if not geojson_str:
+        return None
+    try:
+        data = json.loads(geojson_str)
+        return {
+            "type": data.get("type", "Point"),
+            "coordinates": data.get("coordinates"),
+        }
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _build_ouvrage_schema(
+    o: Ouvrage,
+    include_metadata: bool,
+    geojson_str: str | None = None,
+) -> OuvrageSchema:
     type_ouvrage = TypeOuvrageResume(
         code=o.type_ouvrage.code,
         libelle=o.type_ouvrage.libelle,
@@ -88,14 +105,7 @@ def _build_ouvrage_schema(o: Ouvrage, include_metadata: bool) -> OuvrageSchema:
             )
         )
 
-    geom = None
-    if o.geom is not None:
-        try:
-            from geoalchemy2.shape import to_shape
-            shape = to_shape(o.geom)
-            geom = {"type": "Point", "coordinates": [shape.x, shape.y]}
-        except Exception:
-            geom = None
+    geom = _parse_geojson(geojson_str)
 
     return OuvrageSchema(
         id_ouvrage=o.id_ouvrage,
@@ -126,7 +136,10 @@ def list_ouvrages(
     db: Session = Depends(get_db),
 ):
     stmt = (
-        select(Ouvrage)
+        select(
+            Ouvrage,
+            func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
+        )
         .options(
             selectinload(Ouvrage.type_ouvrage),
             selectinload(Ouvrage.localite),
@@ -152,22 +165,27 @@ def list_ouvrages(
 
     stmt = stmt.order_by(Ouvrage.id_ouvrage).limit(pagination.limit + 1)
 
-    rows = db.scalars(stmt).all()
+    rows = db.execute(stmt).all()
     has_more = len(rows) > pagination.limit
     if has_more:
         rows = rows[: pagination.limit]
 
-    next_cursor = _encode_cursor(rows[-1].id_ouvrage) if has_more and rows else None
+    next_cursor = _encode_cursor(rows[-1][0].id_ouvrage) if has_more and rows else None
     include_metadata = include == "metadata"
 
+    data = [
+        _build_ouvrage_schema(row[0], include_metadata, row[1])
+        for row in rows
+    ]
+
     return PaginatedCursor(
-        data=[_build_ouvrage_schema(o, include_metadata) for o in rows],
+        data=data,
         pagination=pagination.to_response(next_cursor=next_cursor, has_more=has_more),
     )
 
 
 # =====================================================================
-# EXPORT EXCEL  ← AVANT /ouvrages/{id}
+# EXPORT EXCEL
 # =====================================================================
 @router.get(
     "/ouvrages/export",
@@ -183,8 +201,6 @@ def export_ouvrages_excel(
     filters_dict = filters.to_dict()
     include_metadata = include == "metadata"
 
-    _check_export_limit(db, filters_dict)
-
     return StreamingResponse(
         export_ouvrages_xlsx(db, filters_dict, include_metadata, with_summary),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -195,7 +211,7 @@ def export_ouvrages_excel(
 
 
 # =====================================================================
-# EXPORT CSV  ← AVANT /ouvrages/{id}
+# EXPORT CSV
 # =====================================================================
 @router.get(
     "/ouvrages/export.csv",
@@ -210,8 +226,6 @@ def export_ouvrages_csv_endpoint(
     filters_dict = filters.to_dict()
     include_metadata = include == "metadata"
 
-    _check_export_limit(db, filters_dict)
-
     return StreamingResponse(
         export_ouvrages_csv(db, filters_dict, include_metadata),
         media_type="text/csv; charset=utf-8",
@@ -222,7 +236,7 @@ def export_ouvrages_csv_endpoint(
 
 
 # =====================================================================
-# DÉTAIL D'UN OUVRAGE  ← APRÈS les routes statiques
+# DÉTAIL D'UN OUVRAGE
 # =====================================================================
 @router.get(
     "/ouvrages/{id}",
@@ -234,8 +248,11 @@ def get_ouvrage(
     include: Literal["metadata"] | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    o = db.scalar(
-        select(Ouvrage)
+    stmt = (
+        select(
+            Ouvrage,
+            func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
+        )
         .where(Ouvrage.id_ouvrage == id)
         .options(
             selectinload(Ouvrage.type_ouvrage),
@@ -246,12 +263,13 @@ def get_ouvrage(
             .selectinload(ProjetFinancement.financeur),
         )
     )
-    if o is None:
+    row = db.execute(stmt).first()
+    if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Ouvrage {id} introuvable",
         )
-    return _build_ouvrage_schema(o, include == "metadata")
+    return _build_ouvrage_schema(row[0], include == "metadata", row[1])
 
 
 # =====================================================================
