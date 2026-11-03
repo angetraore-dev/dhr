@@ -414,11 +414,7 @@ En Phase 4.4, on ajoutera :
 
 
 ---
-
-## Question
-
-1. **Colle ce document dans `docs/SCRIPTS.md`**.
-2. **Applique l'ordre correct** (section 4) et colle-moi les sorties de chaque étape.
-3. **On enchaîne sur la Phase 4.4** (routers upload + runs qui automatisent le pipeline) ?
-
-Ma reco : **oui**. Une fois que l'ordre correct fonctionne (import localités → ingestion → rapprochement → consolidation), on peut implémenter les endpoints qui font la même chose en une seule requête.
+```bash
+# Generer un Token
+docker compose exec backend python -c "from app.auth import create_access_token; print(create_access_token('test', 'admin'))"
+```
