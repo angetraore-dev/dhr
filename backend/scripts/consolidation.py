@@ -28,6 +28,7 @@ def main(id_run: int) -> None:
         print(f"  Ouvrages créés : {stats['ouvrages_crees']}")
         print(f"  Ouvrages mis à jour : {stats['ouvrages_mis_a_jour']}")
         print(f"  Lignes ignorées : {stats['lignes_ignorees']}")
+        print(f"  Lignes localités ignorées : {stats['lignes_localites_ignorees']}")
         print(f"  Erreurs : {stats['erreurs']}")
 
         # Stats en base

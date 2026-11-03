@@ -250,17 +250,28 @@ def consolider_lignes_run(
     for f in db.scalars(select(Feuille)).all():
         feuilles_cache[f.id_feuille] = f.nom_feuille
 
+   # Filtre les lignes qui viennent de feuilles "Localités" (pas des ouvrages)
+    def _est_feuille_localites(nom_feuille: str) -> bool:
+        norm = _normaliser(nom_feuille)
+        return "localite" in norm or "village" in norm or "campement" in norm
+
     stats = {
         "total_lignes": len(lignes),
         "ouvrages_crees": 0,
         "ouvrages_mis_a_jour": 0,
         "lignes_ignorees": 0,
+        "lignes_localites_ignorees": 0,
         "erreurs": 0,
     }
 
     for ligne in lignes:
         try:
             nom_feuille = feuilles_cache.get(ligne.id_feuille, "")
+
+            # Ignore les lignes de la feuille "Localités"
+            if _est_feuille_localites(nom_feuille):
+                stats["lignes_localites_ignorees"] += 1
+                continue
 
             type_ouvrage = _map_type_ouvrage_avec_feuille(ligne.type_ouvrage_brut, nom_feuille, db)
             existing_before = _trouver_ouvrage_existant(db, ligne, type_ouvrage.id_type_ouvrage)
