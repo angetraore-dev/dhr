@@ -26,10 +26,7 @@ from app.services.mapping import (
     sauvegarder_mapping_feuille,
 )
 
-router = APIRouter(
-    tags=["Fichiers"],
-    dependencies=[Depends(require_api_key)],
-)
+router = APIRouter(tags=["Fichiers"])
 
 
 # =====================================================================
@@ -39,6 +36,7 @@ router = APIRouter(
     "/fichiers",
     response_model=PaginatedOffset[FichierSchema],
     summary="Liste des fichiers",
+    dependencies=[Depends(require_api_key)]
 )
 def list_fichiers(
     id_source: int | None = Query(None),
@@ -86,6 +84,7 @@ def list_fichiers(
     "/fichiers/{id}",
     response_model=FichierSchema,
     summary="Détail d'un fichier",
+    dependencies=[Depends(require_api_key)]
 )
 def get_fichier(id: int, db: Session = Depends(get_db)):
     f = db.scalar(
@@ -121,6 +120,7 @@ def get_fichier(id: int, db: Session = Depends(get_db)):
     "/fichiers/{id}/feuilles",
     response_model=PaginatedOffset[FeuilleSchema],
     summary="Feuilles d'un fichier",
+    dependencies=[Depends(require_api_key)]
 )
 def list_feuilles_fichier(
     id: int,
@@ -156,6 +156,7 @@ def list_feuilles_fichier(
     "/fichiers/{id}/mapping-proposal",
     response_model=list[MappingProposalFeuille],
     summary="Proposition de mapping automatique",
+    dependencies=[Depends(require_api_key)]
 )
 def get_mapping_proposal(id: int, db: Session = Depends(get_db)):
     """
@@ -203,3 +204,131 @@ def put_mapping(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
+# =====================================================================
+# UPLOAD
+# =====================================================================
+from fastapi import UploadFile, File, Form, BackgroundTasks
+from app.services.upload import uploader_fichier
+from app.services.run import creer_run, executer_pipeline
+from app.models import IngestionRun
+from app.schemas.ingestion import IngestionRun as IngestionRunSchema
+
+
+@router.post(
+    "/fichiers",
+    status_code=status.HTTP_201_CREATED,
+    summary="Uploader un fichier (synchrone : analyse des feuilles)",
+)
+async def upload_fichier(
+    file: UploadFile = File(...),
+    id_source: int = Form(...),
+    commentaire: str | None = Form(None),
+    force: bool = Query(False, description="Forcer la réingestion si le hash existe déjà"),
+    db: Session = Depends(get_db),
+    user: JWTUser = Depends(require_jwt),
+):
+    """
+    Upload un fichier Excel.
+    - Sauvegarde dans /app/uploads/
+    - Détecte les feuilles
+    - Crée fichier + feuille en base
+    - Retourne les feuilles détectées
+    """
+    #return uploader_fichier(db, file, id_source, commentaire, force)
+    result = uploader_fichier(db, file, id_source, commentaire, force)
+    db.commit()
+    return result
+
+# =====================================================================
+# RUNS
+# =====================================================================
+@router.post(
+    "/fichiers/{id}/runs",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Lancer une ingestion (asynchrone)",
+)
+def lancer_run(
+    id: int,
+    background_tasks: BackgroundTasks,
+    mode: Literal["complet", "echantillon", "plage"] = Query("complet"),
+    id_feuille: int | None = Query(None),
+    limite_lignes: int | None = Query(None),
+    ligne_debut: int | None = Query(None),
+    ligne_fin: int | None = Query(None),
+    db: Session = Depends(get_db),
+    user: JWTUser = Depends(require_jwt),
+):
+    """
+    Lance un run d'ingestion asynchrone.
+    Le pipeline complet est exécuté en arrière-plan :
+    1. Ingestion
+    2. Rapprochement
+    3. Consolidation
+
+    Le client doit poller GET /runs/{id} pour suivre l'avancement.
+    """
+    # Crée le run
+    run = creer_run(
+        db, id,
+        id_feuille=id_feuille,
+        mode=mode,
+        limite_lignes=limite_lignes,
+        ligne_debut=ligne_debut,
+        ligne_fin=ligne_fin,
+    )
+    db.commit()
+
+    # Lance le pipeline en arrière-plan
+    from app.db import SessionLocal
+
+    def _pipeline():
+        db2 = SessionLocal()
+        try:
+            executer_pipeline(db2, run.id_run)
+            db2.commit()
+        except Exception as e:
+            logger.exception("Erreur pipeline run %s : %s", run.id_run, e)
+            db2.rollback()
+        finally:
+            db2.close()
+
+    background_tasks.add_task(_pipeline)
+
+    return {
+        "id_run": run.id_run,
+        "id_fichier": id,
+        "statut": "en_cours",
+        "started_at": run.started_at.isoformat(),
+        "poll_url": f"/v1/runs/{run.id_run}",
+    }
+
+
+@router.get(
+    "/fichiers/{id}/runs",
+    response_model=PaginatedOffset[IngestionRunSchema],
+    summary="Historique des runs d'un fichier",
+    dependencies=[Depends(require_api_key)]
+)
+def list_runs_fichier(
+    id: int,
+    pagination: OffsetPagination = Depends(),
+    db: Session = Depends(get_db),
+):
+    from sqlalchemy import func
+    fichier = db.get(Fichier, id)
+    if fichier is None:
+        raise HTTPException(404, f"Fichier {id} introuvable")
+
+    stmt = select(IngestionRun).where(IngestionRun.id_fichier == id)
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    rows = db.scalars(
+        stmt.order_by(IngestionRun.id_run.desc())
+        .offset(pagination.offset)
+        .limit(pagination.limit)
+    ).all()
+
+    return PaginatedOffset(
+        data=[IngestionRunSchema.model_validate(r) for r in rows],
+        pagination=pagination.to_response(total=total),
+    )

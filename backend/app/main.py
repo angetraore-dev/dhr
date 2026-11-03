@@ -21,6 +21,7 @@ from app.routers import (
     ouvrages,
     qualite,
     referentiels,
+    ingestion,
 )
 
 
@@ -89,6 +90,7 @@ app.include_router(fichiers.router, prefix="/v1")
 app.include_router(ouvrages.router, prefix="/v1")
 app.include_router(carto.router, prefix="/v1")
 app.include_router(qualite.router, prefix="/v1")
+app.include_router(ingestion.router, prefix="/v1")
 
 
 @app.on_event("startup")
