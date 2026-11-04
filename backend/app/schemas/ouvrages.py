@@ -41,18 +41,16 @@ class Ouvrage(BaseModel):
 
     id_ouvrage: int
     code_ouvrage: str | None = None
-    type_ouvrage: TypeOuvrageResume
+    nature_ouvrage: str | None = None
+    type_alimentation: str | None = None
+    realisation_par: str | None = None
     etat: Literal["fonctionnel", "en_panne", "abandonne", "inconnu"]
     annee_realisation: int | None = None
     localite: LocaliteResume
     geom: GeoJSONPoint | None = None
     cgpe: CGPESummary | None = None
     financements: list[FinancementResume] = Field(default_factory=list)
-    metadata: dict[str, Any] | None = Field(
-        None,
-        description="Présent uniquement si ?include=metadata",
-    )
-
+    metadata: dict[str, Any] | None = None
 
 # ----- CGPE -----
 class CGPE(BaseModel):

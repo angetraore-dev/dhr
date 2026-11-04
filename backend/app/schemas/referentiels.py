@@ -1,5 +1,5 @@
 """
-Schémas des référentiels : Source, TypeOuvrage, RefGeoAdmin, Localite.
+Schémas des référentiels : Source, RefGeoAdmin, Localite.
 """
 from __future__ import annotations
 
@@ -21,17 +21,6 @@ class SourceBase(BaseModel):
 
 class Source(SourceBase):
     id_source: int
-
-
-# ----- TypeOuvrage -----
-class TypeOuvrage(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id_type_ouvrage: int
-    code: str
-    libelle: str
-    description: str | None = None
-    actif: bool
 
 
 # ----- RefGeoAdmin -----

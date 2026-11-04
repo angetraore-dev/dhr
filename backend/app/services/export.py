@@ -29,14 +29,13 @@ from app.models import (
     ProjetFinancement,
     RefGeoAdmin,
     Source,
-    TypeOuvrage,
 )
 
 settings = get_settings()
 
 
 # =====================================================================
-# Colonnes standard (réordonnées : administratif avant métier)
+# Colonnes standard
 # =====================================================================
 STANDARD_COLUMNS: list[tuple[str, str]] = [
     ("n", "N°"),
@@ -47,7 +46,9 @@ STANDARD_COLUMNS: list[tuple[str, str]] = [
     ("localite", "Localité"),
     ("id_ouvrage", "ID ouvrage"),
     ("code_ouvrage", "Code ouvrage"),
-    ("type_ouvrage", "Type d'ouvrage"),
+    ("nature_ouvrage", "Nature (Puits/Forage)"),
+    ("type_alimentation", "Alimentation (PMH/HVA/PEA)"),
+    ("realisation_par", "Réalisation (Public/Privé)"),
     ("etat", "État"),
     ("annee_realisation", "Année de réalisation"),
     ("latitude", "Latitude"),
@@ -59,7 +60,7 @@ STANDARD_COLUMNS: list[tuple[str, str]] = [
 
 
 # =====================================================================
-# Helpers (inchangés)
+# Helpers
 # =====================================================================
 def _get_ref_geo_chain(db: Session, id_localite: int) -> dict[str, str]:
     localite = db.get(Localite, id_localite)
@@ -115,7 +116,9 @@ def _build_row(
         "localite": o.localite.nom_usage if o.localite else "",
         "id_ouvrage": o.id_ouvrage,
         "code_ouvrage": o.code_ouvrage or "",
-        "type_ouvrage": o.type_ouvrage.code if o.type_ouvrage else "",
+        "nature_ouvrage": o.nature_ouvrage or "",
+        "type_alimentation": o.type_alimentation or "",
+        "realisation_par": o.realisation_par or "",
         "etat": o.etat,
         "annee_realisation": o.annee_realisation or "",
         "latitude": o.latitude_decimal if o.latitude_decimal is not None else "",
@@ -138,7 +141,6 @@ def _iter_ouvrages(
     stmt = (
         select(Ouvrage)
         .options(
-            selectinload(Ouvrage.type_ouvrage),
             selectinload(Ouvrage.localite),
             selectinload(Ouvrage.cgpes),
             selectinload(Ouvrage.financements)
@@ -147,8 +149,12 @@ def _iter_ouvrages(
         )
         .order_by(Ouvrage.id_ouvrage)
     )
-    if filters.get("type_ouvrage"):
-        stmt = stmt.join(TypeOuvrage).where(TypeOuvrage.code == filters["type_ouvrage"])
+    if filters.get("type_alimentation"):
+        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
+    if filters.get("nature_ouvrage"):
+        stmt = stmt.where(Ouvrage.nature_ouvrage == filters["nature_ouvrage"])
+    if filters.get("realisation_par"):
+        stmt = stmt.where(Ouvrage.realisation_par == filters["realisation_par"])
     if filters.get("etat"):
         stmt = stmt.where(Ouvrage.etat == filters["etat"])
     if filters.get("annee_min") is not None:
@@ -169,8 +175,12 @@ def _iter_ouvrages(
 
 def _count_ouvrages(db: Session, filters: dict[str, Any]) -> int:
     stmt = select(func.count()).select_from(Ouvrage)
-    if filters.get("type_ouvrage"):
-        stmt = stmt.join(TypeOuvrage).where(TypeOuvrage.code == filters["type_ouvrage"])
+    if filters.get("type_alimentation"):
+        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
+    if filters.get("nature_ouvrage"):
+        stmt = stmt.where(Ouvrage.nature_ouvrage == filters["nature_ouvrage"])
+    if filters.get("realisation_par"):
+        stmt = stmt.where(Ouvrage.realisation_par == filters["realisation_par"])
     if filters.get("etat"):
         stmt = stmt.where(Ouvrage.etat == filters["etat"])
     if filters.get("annee_min") is not None:
@@ -198,18 +208,17 @@ def _filename(extension: str) -> str:
 
 
 # =====================================================================
-# KPI (inchangé)
+# KPI
 # =====================================================================
 def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     kpis: dict[str, Any] = {}
     kpis["total"] = _count_ouvrages(db, filters)
 
-    # Par type
+    # Par type d'alimentation
     stmt = (
-        select(TypeOuvrage.code, func.count())
+        select(Ouvrage.type_alimentation, func.count())
         .select_from(Ouvrage)
-        .join(TypeOuvrage)
-        .group_by(TypeOuvrage.code)
+        .group_by(Ouvrage.type_alimentation)
         .order_by(func.count().desc())
     )
     if filters.get("etat"):
@@ -218,14 +227,14 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
         stmt = stmt.where(Ouvrage.annee_realisation >= filters["annee_min"])
     if filters.get("annee_max") is not None:
         stmt = stmt.where(Ouvrage.annee_realisation <= filters["annee_max"])
-    if filters.get("type_ouvrage"):
-        stmt = stmt.where(TypeOuvrage.code == filters["type_ouvrage"])
-    kpis["par_type_ouvrage"] = dict(db.execute(stmt).all())
+    if filters.get("type_alimentation"):
+        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
+    kpis["par_type_alimentation"] = dict(db.execute(stmt).all())
 
     # Par état
     stmt = select(Ouvrage.etat, func.count()).group_by(Ouvrage.etat).order_by(func.count().desc())
-    if filters.get("type_ouvrage"):
-        stmt = stmt.join(TypeOuvrage).where(TypeOuvrage.code == filters["type_ouvrage"])
+    if filters.get("type_alimentation"):
+        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
     if filters.get("annee_min") is not None:
         stmt = stmt.where(Ouvrage.annee_realisation >= filters["annee_min"])
     if filters.get("annee_max") is not None:
@@ -242,8 +251,8 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
         .group_by(Source.nom)
         .order_by(func.count(func.distinct(Ouvrage.id_ouvrage)).desc())
     )
-    if filters.get("type_ouvrage"):
-        stmt = stmt.join(TypeOuvrage).where(TypeOuvrage.code == filters["type_ouvrage"])
+    if filters.get("type_alimentation"):
+        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
     if filters.get("etat"):
         stmt = stmt.where(Ouvrage.etat == filters["etat"])
     if filters.get("annee_min") is not None:
@@ -279,8 +288,8 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
         func.max(Ouvrage.annee_realisation),
         func.avg(Ouvrage.annee_realisation),
     )
-    if filters.get("type_ouvrage"):
-        stmt = stmt.join(TypeOuvrage).where(TypeOuvrage.code == filters["type_ouvrage"])
+    if filters.get("type_alimentation"):
+        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
     if filters.get("etat"):
         stmt = stmt.where(Ouvrage.etat == filters["etat"])
     row = db.execute(stmt).first()
@@ -297,8 +306,8 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
         .select_from(Ouvrage)
     )
 
-    if filters.get("type_ouvrage"):
-        stmt = stmt.join(TypeOuvrage).where(TypeOuvrage.code == filters["type_ouvrage"])
+    if filters.get("type_alimentation"):
+        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
     if filters.get("etat"):
         stmt = stmt.where(Ouvrage.etat == filters["etat"])
     row = db.execute(stmt).first()
@@ -311,10 +320,10 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
         func.count().filter(CGPE.existe == True, CGPE.statut == "fonctionnel"),
         func.count(CGPE.id_cgpe),
     ).select_from(CGPE)
-    if filters.get("type_ouvrage") or filters.get("etat"):
+    if filters.get("type_alimentation") or filters.get("etat"):
         stmt = stmt.join(Ouvrage, Ouvrage.id_ouvrage == CGPE.id_ouvrage)
-        if filters.get("type_ouvrage"):
-            stmt = stmt.join(TypeOuvrage).where(TypeOuvrage.code == filters["type_ouvrage"])
+        if filters.get("type_alimentation"):
+            stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
         if filters.get("etat"):
             stmt = stmt.where(Ouvrage.etat == filters["etat"])
     row = db.execute(stmt).first()
@@ -330,9 +339,10 @@ def _format_filters(filters: dict[str, Any]) -> str:
     if not filters or all(v is None for v in filters.values()):
         return "Aucun filtre (tous les ouvrages)"
     labels = {
-        "type_ouvrage": "Type",
+        "type_alimentation": "Alimentation",
+        "nature_ouvrage": "Nature",
+        "realisation_par": "Réalisation",
         "etat": "État",
-        "district": "District",
         "region": "Région",
         "departement": "Département",
         "sous_prefecture": "Sous-préfecture",
@@ -351,10 +361,8 @@ def _format_filters(filters: dict[str, Any]) -> str:
 # Feuille Synthèse (XlsxWriter)
 # =====================================================================
 def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -> None:
-    """Écrit la feuille Synthèse avec XlsxWriter."""
     ws = workbook.add_worksheet("Synthèse")
 
-    # Formats
     fmt_title = workbook.add_format({
         "bold": True, "font_size": 14, "font_color": "#FFFFFF",
         "bg_color": "#2C3E50", "align": "center", "valign": "vcenter",
@@ -371,7 +379,6 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
 
     row = 0
 
-    # Titre (merge sur 4 colonnes)
     ws.merge_range(row, 0, row, 3, "Export des ouvrages hydrauliques ruraux", fmt_title)
     ws.set_row(row, 24)
     row += 1
@@ -382,7 +389,6 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
     ws.write(row, 0, f"Filtres : {_format_filters(kpis['filtres'])}", fmt_label)
     row += 2
 
-    # Vue d'ensemble
     ws.merge_range(row, 0, row, 3, "Vue d'ensemble", fmt_section)
     row += 1
     overview = [
@@ -399,14 +405,14 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
         row += 1
     row += 1
 
-    # Par type
-    ws.merge_range(row, 0, row, 1, "Répartition par type d'ouvrage", fmt_section)
+    # Par alimentation
+    ws.merge_range(row, 0, row, 1, "Répartition par alimentation", fmt_section)
     row += 1
-    ws.write(row, 0, "Type", fmt_header)
+    ws.write(row, 0, "Alimentation", fmt_header)
     ws.write(row, 1, "Nombre", fmt_header)
     row += 1
-    for code, count in kpis["par_type_ouvrage"].items():
-        ws.write(row, 0, code, fmt_label)
+    for code, count in kpis["par_type_alimentation"].items():
+        ws.write(row, 0, code or "Inconnu", fmt_label)
         ws.write(row, 1, count, fmt_label)
         row += 1
     row += 1
@@ -453,7 +459,7 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
 
 
 # =====================================================================
-# Export Excel (XlsxWriter, constant_memory)
+# Export Excel
 # =====================================================================
 def export_ouvrages_xlsx(
     db: Session,
@@ -461,10 +467,8 @@ def export_ouvrages_xlsx(
     include_metadata: bool = False,
     with_summary: bool = True,
 ) -> Generator[bytes, None, None]:
-    """Génère un fichier Excel (xlsx) avec XlsxWriter en constant_memory."""
     # _check_export_limit(db, filters)
 
-    # Passe 1 : metadata columns
     metadata_columns: list[str] = []
     if include_metadata:
         sample = db.scalars(select(Ouvrage).limit(100)).all()
@@ -474,19 +478,13 @@ def export_ouvrages_xlsx(
                 cols.update(o.metadata_.keys())
         metadata_columns = sorted(f"metadata_{k}" for k in cols)
 
-    # Buffer + workbook
     buffer = io.BytesIO()
-    wb = xlsxwriter.Workbook(
-        buffer,
-        {"in_memory": True }, #, "constant_memory": True
-    )
+    wb = xlsxwriter.Workbook(buffer, {"in_memory": True})
 
-    # Feuille Synthèse (optionnelle)
     if with_summary:
         kpis = _compute_kpis(db, filters)
         _write_synthese_sheet(wb, kpis)
 
-    # Feuille Ouvrages
     ws = wb.add_worksheet("Ouvrages")
     fmt_header = wb.add_format({"bold": True, "bg_color": "#EBF5FB", "border": 1})
 
@@ -495,10 +493,9 @@ def export_ouvrages_xlsx(
         headers.extend(metadata_columns)
 
     ws.write_row(0, 0, headers, fmt_header)
-    ws.set_column(0, 0, 6)   # N°
+    ws.set_column(0, 0, 6)
     ws.set_column(1, len(headers) - 1, 20)
 
-    # Passe 2 : données
     index = 0
     row_idx = 1
     for chunk in _iter_ouvrages(db, filters):
@@ -517,7 +514,7 @@ def export_ouvrages_xlsx(
 
 
 # =====================================================================
-# Export CSV (inchangé)
+# Export CSV
 # =====================================================================
 def export_ouvrages_csv(
     db: Session,

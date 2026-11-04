@@ -1,5 +1,5 @@
 """
-Router des référentiels : sources, types d'ouvrage, référentiel géo, localités.
+Router des référentiels : sources, référentiel géo, localités.
 """
 from __future__ import annotations
 
@@ -12,14 +12,13 @@ from sqlalchemy.orm import Session, selectinload
 from app.auth import require_api_key
 from app.db import get_db
 from app.deps import OffsetPagination
-from app.models import Localite, RefGeoAdmin, Source, TypeOuvrage
+from app.models import Localite, RefGeoAdmin, Source
 from app.schemas.common import PaginatedOffset
 from app.schemas.referentiels import (
     Localite as LocaliteSchema,
     LocaliteResume,
     RefGeoAdmin as RefGeoAdminSchema,
     Source as SourceSchema,
-    TypeOuvrage as TypeOuvrageSchema,
 )
 
 router = APIRouter(
@@ -48,19 +47,6 @@ def list_sources(
         data=[SourceSchema.model_validate(r) for r in rows],
         pagination=pagination.to_response(total=total),
     )
-
-
-# =====================================================================
-# TYPES D'OUVRAGE
-# =====================================================================
-@router.get(
-    "/types-ouvrage",
-    response_model=list[TypeOuvrageSchema],
-    summary="Liste des types d'ouvrage",
-)
-def list_types_ouvrage(db: Session = Depends(get_db)):
-    rows = db.scalars(select(TypeOuvrage).order_by(TypeOuvrage.code)).all()
-    return [TypeOuvrageSchema.model_validate(r) for r in rows]
 
 
 # =====================================================================
@@ -205,19 +191,12 @@ def get_localite(
             detail=f"Localité {id} introuvable",
         )
 
-    # Construit la réponse
-    geom_centre = None
-    if loc.geom_centre is not None:
-        # Le champ geom_centre est une geometry PostGIS ; Pydantic attend GeoJSON
-        # On utilise ST_AsGeoJSON via une requête séparée ou from_wkt
-        pass
-
     data = LocaliteSchema(
         id_localite=loc.id_localite,
         nom_usage=loc.nom_usage,
         latitude_centre=loc.latitude_centre,
         longitude_centre=loc.longitude_centre,
-        geom_centre=None,  # à compléter si besoin
+        geom_centre=None,
         alias=[a.alias for a in loc.alias],
         metadata=loc.metadata_ if include == "metadata" else None,
     )
