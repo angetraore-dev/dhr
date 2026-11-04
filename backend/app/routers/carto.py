@@ -17,7 +17,15 @@ from sqlalchemy.orm import Session, selectinload
 from app.auth import require_api_key
 from app.db import get_db
 from app.deps import OuvrageFilters
-from app.models import Feuille, Fichier, LigneIngeree, Ouvrage, TypeOuvrage
+from app.models import (
+    Feuille,
+    Fichier,
+    LigneIngeree,
+    Localite,
+    Ouvrage,
+    RefGeoAdmin,
+    TypeOuvrage,
+)
 
 router = APIRouter(
     tags=["Carto"],
@@ -46,11 +54,24 @@ def _ligne_to_feature(
     ligne: LigneIngeree,
     fichier: Fichier,
     geojson_str: str | None,
+    nom_feuille: str | None,
 ) -> dict[str, Any] | None:
     """Convertit une ligne ingérée en Feature GeoJSON."""
     geom = _parse_geojson_geom(geojson_str)
     if geom is None:
         return None
+
+    # Détermine le type d'ouvrage : nom de feuille prioritaire, sinon type brut
+    type_ouvrage = ligne.type_ouvrage_brut
+    nom_upper = (nom_feuille or "").upper()
+    if "PMH" in nom_upper:
+        type_ouvrage = "PMH"
+    elif "HVA" in nom_upper:
+        type_ouvrage = "HVA"
+    elif "PEA" in nom_upper:
+        type_ouvrage = "PEA"
+    elif "HV" in nom_upper:
+        type_ouvrage = "HV"
 
     return {
         "type": "Feature",
@@ -60,7 +81,7 @@ def _ligne_to_feature(
             "id_ligne": ligne.id_ligne,
             "id_fichier": fichier.id_fichier,
             "nom_fichier": fichier.nom_fichier_original,
-            "type_ouvrage": ligne.type_ouvrage_brut,
+            "type_ouvrage": type_ouvrage,
             "statut_qualite": ligne.statut_qualite,
             "localite": ligne.localite_brute,
         },
@@ -87,6 +108,7 @@ def _ouvrage_to_feature(
             "etat": o.etat,
             "annee_realisation": o.annee_realisation,
             "localite": o.localite.nom_usage if o.localite else None,
+            "metadata": o.metadata_ or {},
         },
     }
 
@@ -107,11 +129,11 @@ def _build_feature_collection_fichier(
             detail=f"Fichier {id_fichier} introuvable",
         )
 
-    feuilles_ids = db.scalars(
-        select(Feuille.id_feuille).where(Feuille.id_fichier == id_fichier)
+    feuilles = db.scalars(
+        select(Feuille).where(Feuille.id_fichier == id_fichier)
     ).all()
 
-    if not feuilles_ids:
+    if not feuilles:
         return {
             "type": "FeatureCollection",
             "features": [],
@@ -121,6 +143,9 @@ def _build_feature_collection_fichier(
                 "count": 0,
             },
         }
+
+    feuilles_ids = [f.id_feuille for f in feuilles]
+    feuille_noms: dict[int, str] = {f.id_feuille: f.nom_feuille for f in feuilles}
 
     # ST_AsGeoJSON : convertit la géométrie en chaîne JSON directement en SQL
     stmt = select(
@@ -142,7 +167,8 @@ def _build_feature_collection_fichier(
     for row in rows:
         ligne = row[0]
         geojson_str = row[1]
-        feature = _ligne_to_feature(ligne, fichier, geojson_str)
+        nom_feuille = feuille_noms.get(ligne.id_feuille)
+        feature = _ligne_to_feature(ligne, fichier, geojson_str, nom_feuille)
         if feature is not None:
             features.append(feature)
 
@@ -206,14 +232,33 @@ def points_tous(
         selectinload(Ouvrage.localite),
     )
 
+    # Filtre par type d'ouvrage
     if filters.type_ouvrage:
         stmt = stmt.join(TypeOuvrage).where(TypeOuvrage.code == filters.type_ouvrage)
+
+    # Filtre par état
     if filters.etat:
         stmt = stmt.where(Ouvrage.etat == filters.etat)
+
+    # Filtre par année
     if filters.annee_min is not None:
         stmt = stmt.where(Ouvrage.annee_realisation >= filters.annee_min)
     if filters.annee_max is not None:
         stmt = stmt.where(Ouvrage.annee_realisation <= filters.annee_max)
+
+    # Filtres géographiques (district, region, departement, sous_prefecture)
+    # → jointure sur localite → ref_geo_admin
+    if filters.district or filters.region or filters.departement or filters.sous_prefecture:
+        stmt = stmt.join(Ouvrage.localite).join(Localite.ref_geo)
+
+        if filters.district:
+            stmt = stmt.where(RefGeoAdmin.niveau == "district", RefGeoAdmin.nom == filters.district)
+        if filters.region:
+            stmt = stmt.where(RefGeoAdmin.niveau == "region", RefGeoAdmin.nom == filters.region)
+        if filters.departement:
+            stmt = stmt.where(RefGeoAdmin.niveau == "departement", RefGeoAdmin.nom == filters.departement)
+        if filters.sous_prefecture:
+            stmt = stmt.where(RefGeoAdmin.niveau == "sous_prefecture", RefGeoAdmin.nom == filters.sous_prefecture)
 
     rows = db.execute(stmt).all()
     features: list[dict[str, Any]] = []
