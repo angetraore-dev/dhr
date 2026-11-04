@@ -52,19 +52,21 @@ class OuvrageFilters:
         self,
         type_ouvrage: str | None = Query(None, description="Code type d'ouvrage"),
         etat: Literal["fonctionnel", "en_panne", "abandonne", "inconnu"] | None = Query(None),
-        district: str | None = Query(None),
         region: str | None = Query(None),
         departement: str | None = Query(None),
         sous_prefecture: str | None = Query(None),
+        localite: str | None = Query(None, description="Recherche floue sur le nom de la localite"),
+        bailleur: str | None = Query(None, description="Nom du bailleur (ex. UNICEF)"),
         annee_min: int | None = Query(None, ge=1900),
         annee_max: int | None = Query(None, ge=1900),
     ):
         self.type_ouvrage = type_ouvrage
         self.etat = etat
-        self.district = district
         self.region = region
         self.departement = departement
         self.sous_prefecture = sous_prefecture
+        self.localite = localite
+        self.bailleur = bailleur
         self.annee_min = annee_min
         self.annee_max = annee_max
 
@@ -72,10 +74,11 @@ class OuvrageFilters:
         return {
             "type_ouvrage": self.type_ouvrage,
             "etat": self.etat,
-            "district": self.district,
             "region": self.region,
             "departement": self.departement,
             "sous_prefecture": self.sous_prefecture,
+            "localite": self.localite,
+            "bailleur": self.bailleur,
             "annee_min": self.annee_min,
             "annee_max": self.annee_max,
         }

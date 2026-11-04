@@ -288,4 +288,16 @@ export const api = {
         if (!res.ok) throw new Error('Erreur export CSV')
         return res.blob()
     },
+    refGeo: (params?: { niveau?: string; parent_id?: number }) => {
+        const q = new URLSearchParams()
+        if (params?.niveau) q.set('niveau', params.niveau)
+        if (params?.parent_id !== undefined) q.set('parent_id', String(params.parent_id))
+        return request<{ data: any[]; pagination: PaginationOffset }>(`/ref-geo?${q}`)
+    },
+    localites: (params?: { q?: string; limit?: number }) => {
+        const q = new URLSearchParams()
+        if (params?.q) q.set('q', params.q)
+        if (params?.limit !== undefined) q.set('limit', String(params.limit))
+        return request<{ data: any[]; pagination: PaginationOffset }>(`/localites?${q}`)
+    },
 }
