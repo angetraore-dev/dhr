@@ -7,7 +7,9 @@ export interface Filters {
     departement: string
     sous_prefecture: string
     localite: string
-    type_ouvrage: string
+    type_alimentation: string
+    nature_ouvrage: string
+    realisation_par: string
     etat: string
     annee_min: string
     annee_max: string
@@ -26,13 +28,10 @@ interface GeoOption {
 
 export function FiltersPanel({ filters, onChange, showGeographic = true }: Props) {
     const [localites, setLocalites] = useState<{ id: number; nom: string }[]>([])
-
-    // On stocke les objets complets pour avoir les id_geo (parent_id)
     const [regions, setRegions] = useState<GeoOption[]>([])
     const [departements, setDepartements] = useState<GeoOption[]>([])
     const [sousPrefectures, setSousPrefectures] = useState<GeoOption[]>([])
 
-    // 1. Charger les régions (une seule fois)
     useEffect(() => {
         if (!showGeographic) return
         api.refGeo({ niveau: 'region' }).then((res) => {
@@ -40,7 +39,6 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
         }).catch(() => {})
     }, [showGeographic])
 
-    // 2. Charger les départements quand la région change
     useEffect(() => {
         if (!filters.region) {
             setDepartements([])
@@ -54,7 +52,6 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
         }
     }, [filters.region, regions])
 
-    // 3. Charger les sous-préfectures quand le département change
     useEffect(() => {
         if (!filters.departement) {
             setSousPrefectures([])
@@ -68,7 +65,6 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
         }
     }, [filters.departement, departements])
 
-    // 4. Charger les localités (autocomplete)
     useEffect(() => {
         if (!showGeographic) return
         const timer = setTimeout(() => {
@@ -84,7 +80,6 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
     }, [filters.localite, showGeographic])
 
     const update = (key: keyof Filters, value: string) => {
-        // Réinitialisation en cascade
         if (key === 'region') {
             onChange({ ...filters, region: value, departement: '', sous_prefecture: '' })
         } else if (key === 'departement') {
@@ -99,20 +94,48 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
             <h3 className="font-medium text-sm text-gray-700">Filtres</h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                {/* Type d'ouvrage */}
+                {/* Alimentation */}
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Alimentation</label>
                     <select
-                        value={filters.type_ouvrage}
-                        onChange={(e) => update('type_ouvrage', e.target.value)}
+                        value={filters.type_alimentation}
+                        onChange={(e) => update('type_alimentation', e.target.value)}
                         className="w-full h-9 rounded-md border border-gray-300 bg-white px-2 text-sm"
                     >
-                        <option value="">Tous</option>
+                        <option value="">Toutes</option>
                         <option value="PMH">PMH</option>
                         <option value="HVA">HVA</option>
                         <option value="PEA">PEA</option>
                         <option value="HV">HV</option>
                         <option value="AUTRE">AUTRE</option>
+                    </select>
+                </div>
+
+                {/* Nature */}
+                <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nature</label>
+                    <select
+                        value={filters.nature_ouvrage}
+                        onChange={(e) => update('nature_ouvrage', e.target.value)}
+                        className="w-full h-9 rounded-md border border-gray-300 bg-white px-2 text-sm"
+                    >
+                        <option value="">Toutes</option>
+                        <option value="forage">Forage</option>
+                        <option value="puits">Puits</option>
+                    </select>
+                </div>
+
+                {/* Réalisation */}
+                <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Réalisation</label>
+                    <select
+                        value={filters.realisation_par}
+                        onChange={(e) => update('realisation_par', e.target.value)}
+                        className="w-full h-9 rounded-md border border-gray-300 bg-white px-2 text-sm"
+                    >
+                        <option value="">Toutes</option>
+                        <option value="public">Public</option>
+                        <option value="prive">Privé</option>
                     </select>
                 </div>
 
@@ -181,7 +204,7 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
                             </select>
                         </div>
 
-                        {/* Localité (autocomplete) */}
+                        {/* Localité */}
                         <div className="relative">
                             <label className="block text-xs font-medium text-gray-600 mb-1">Localité</label>
                             <Input
@@ -207,32 +230,32 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
                                 </ul>
                             )}
                         </div>
-
-                        {/* Année min */}
-                        <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Année min</label>
-                            <Input
-                                type="number"
-                                value={filters.annee_min}
-                                onChange={(e) => update('annee_min', e.target.value)}
-                                placeholder="2010"
-                                className="h-9"
-                            />
-                        </div>
-
-                        {/* Année max */}
-                        <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Année max</label>
-                            <Input
-                                type="number"
-                                value={filters.annee_max}
-                                onChange={(e) => update('annee_max', e.target.value)}
-                                placeholder="2026"
-                                className="h-9"
-                            />
-                        </div>
                     </>
                 )}
+
+                {/* Année min */}
+                <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Année min</label>
+                    <Input
+                        type="number"
+                        value={filters.annee_min}
+                        onChange={(e) => update('annee_min', e.target.value)}
+                        placeholder="2010"
+                        className="h-9"
+                    />
+                </div>
+
+                {/* Année max */}
+                <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Année max</label>
+                    <Input
+                        type="number"
+                        value={filters.annee_max}
+                        onChange={(e) => update('annee_max', e.target.value)}
+                        placeholder="2026"
+                        className="h-9"
+                    />
+                </div>
             </div>
         </div>
     )

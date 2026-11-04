@@ -30,7 +30,9 @@ function _escape(str: unknown): string {
 function buildPopupHtml(p: Record<string, any>): string {
     const mainLines: string[] = []
 
-    if (p.type_ouvrage) mainLines.push(`<b>${_escape(p.type_ouvrage)}</b>`)
+    if (p.type_alimentation) mainLines.push(`<b>${_escape(p.type_alimentation)}</b>`)
+    if (p.nature_ouvrage) mainLines.push(`Nature : ${_escape(p.nature_ouvrage)}`)
+    if (p.realisation_par) mainLines.push(`Réalisation : ${_escape(p.realisation_par)}`)
     if (p.etat) mainLines.push(`État : ${_escape(p.etat)}`)
     if (p.localite) mainLines.push(`Localité : ${_escape(p.localite)}`)
     if (p.code_ouvrage) mainLines.push(`Code : ${_escape(p.code_ouvrage)}`)
@@ -72,37 +74,55 @@ export function MapView({ data, height = '600px' }: Props) {
     const mapRef = useRef<L.Map | null>(null)
     const layerRef = useRef<L.GeoJSON | null>(null)
 
-    // Initialisation de la carte (une seule fois)
     useEffect(() => {
         if (!containerRef.current || mapRef.current) return
 
         const map = L.map(containerRef.current, {
-            center: [7.5, -5.5],  // Côte d'Ivoire
+            center: [7.5, -5.5],
             zoom: 7,
             maxZoom: 19,
             zoomControl: true,
         })
 
-        // Esri World Imagery (satellite)
         L.tileLayer(
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             {
                 attribution: 'Tiles &copy; Esri',
                 maxZoom: 19,
+                maxNativeZoom: 16,
             },
         ).addTo(map)
 
-        // Labels (noms de villes, routes)
         L.tileLayer(
             'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
             { attribution: '&copy; Esri', maxZoom: 19, opacity: 0.7 },
         ).addTo(map)
 
         mapRef.current = map
+
         layerRef.current = L.geoJSON(undefined, {
             pointToLayer: (feature, latlng) => {
-                const type = feature.properties?.type_ouvrage
+                const type = feature.properties?.type_alimentation
+                const nature = feature.properties?.nature_ouvrage
                 const color = getColor(type)
+
+                if (nature === 'puits') {
+                    // Carré pour les puits
+                    return L.circleMarker(latlng, {
+                        radius: 6,
+                        fillColor: color,
+                        color: '#ffffff',
+                        weight: 1.5,
+                        opacity: 1,
+                        fillOpacity: 0.9,
+                        // On utilise un cercle mais on pourrait aussi utiliser un carré
+                        // ou une icône différente. Pour le MVP, on garde un cercle mais
+                        // on pourrait mettre un liseré plus épais.
+                        dashArray: '3,3'
+                    })
+                }
+
+                // Cercle plein pour les forages
                 return L.circleMarker(latlng, {
                     radius: 6,
                     fillColor: color,
@@ -125,7 +145,6 @@ export function MapView({ data, height = '600px' }: Props) {
         }
     }, [])
 
-    // Mise à jour des données
     useEffect(() => {
         if (!mapRef.current || !layerRef.current) return
 

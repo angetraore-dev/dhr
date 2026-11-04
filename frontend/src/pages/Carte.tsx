@@ -8,7 +8,8 @@ import { FiltersPanel, type Filters } from '@/components/FiltersPanel'
 
 const EMPTY_FILTERS: Filters = {
     region: '', departement: '', sous_prefecture: '', localite: '',
-    type_ouvrage: '', etat: '', annee_min: '', annee_max: '',
+    type_alimentation: '', nature_ouvrage: '', realisation_par: '', etat: '',
+    annee_min: '', annee_max: '',
 }
 
 type Mode = 'tous' | 'fichier'
