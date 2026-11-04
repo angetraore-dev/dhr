@@ -20,7 +20,6 @@ from app.models import (
     Ouvrage,
     OuvrageProjet,
     ProjetFinancement,
-    TypeOuvrage,
 )
 from app.schemas.common import PaginatedCursor
 from app.schemas.ouvrages import (
@@ -28,7 +27,6 @@ from app.schemas.ouvrages import (
     CGPESummary,
     FinancementResume,
     Ouvrage as OuvrageSchema,
-    TypeOuvrageResume,
 )
 from app.schemas.referentiels import LocaliteResume
 from app.services.export import (
@@ -79,10 +77,6 @@ def _build_ouvrage_schema(
     include_metadata: bool,
     geojson_str: str | None = None,
 ) -> OuvrageSchema:
-    type_ouvrage = TypeOuvrageResume(
-        code=o.type_ouvrage.code,
-        libelle=o.type_ouvrage.libelle,
-    )
     localite = LocaliteResume(
         id_localite=o.localite.id_localite,
         nom_usage=o.localite.nom_usage,
@@ -110,7 +104,9 @@ def _build_ouvrage_schema(
     return OuvrageSchema(
         id_ouvrage=o.id_ouvrage,
         code_ouvrage=o.code_ouvrage,
-        type_ouvrage=type_ouvrage,
+        nature_ouvrage=o.nature_ouvrage,          # ← Nouveau
+        type_alimentation=o.type_alimentation,    # ← Nouveau
+        realisation_par=o.realisation_par,        # ← Nouveau
         etat=o.etat,
         annee_realisation=o.annee_realisation,
         localite=localite,
@@ -141,7 +137,7 @@ def list_ouvrages(
             func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
         )
         .options(
-            selectinload(Ouvrage.type_ouvrage),
+            # selectinload(Ouvrage.type_ouvrage),  # ← SUPPRIMÉ
             selectinload(Ouvrage.localite),
             selectinload(Ouvrage.cgpes),
             selectinload(Ouvrage.financements)
@@ -150,8 +146,12 @@ def list_ouvrages(
         )
     )
 
-    if filters.type_ouvrage:
-        stmt = stmt.join(TypeOuvrage).where(TypeOuvrage.code == filters.type_ouvrage)
+    if filters.type_alimentation:
+        stmt = stmt.where(Ouvrage.type_alimentation == filters.type_alimentation)
+    if filters.nature_ouvrage:
+        stmt = stmt.where(Ouvrage.nature_ouvrage == filters.nature_ouvrage)
+    if filters.realisation_par:
+        stmt = stmt.where(Ouvrage.realisation_par == filters.realisation_par)
     if filters.etat:
         stmt = stmt.where(Ouvrage.etat == filters.etat)
     if filters.annee_min is not None:
@@ -255,7 +255,7 @@ def get_ouvrage(
         )
         .where(Ouvrage.id_ouvrage == id)
         .options(
-            selectinload(Ouvrage.type_ouvrage),
+            # selectinload(Ouvrage.type_ouvrage),  # ← SUPPRIMÉ
             selectinload(Ouvrage.localite),
             selectinload(Ouvrage.cgpes),
             selectinload(Ouvrage.financements)

@@ -87,20 +87,6 @@ class Source(Base):
     projets_finances: Mapped[list[ProjetFinancement]] = relationship(back_populates="financeur")
 
 
-class TypeOuvrage(Base):
-    """Nomenclature contrôlée : PMH, HV, HVA, PEA, AUTRE."""
-
-    __tablename__ = "type_ouvrage"
-
-    id_type_ouvrage: Mapped[int] = mapped_column(Integer, primary_key=True)
-    code: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
-    libelle: Mapped[str] = mapped_column(String(100), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text)
-    actif: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
-
-    ouvrages: Mapped[list[Ouvrage]] = relationship(back_populates="type_ouvrage")
-
-
 class RefGeoAdmin(Base):
     """Référentiel administratif hiérarchique auto-référencé."""
 
@@ -311,6 +297,7 @@ class Feuille(Base):
     )
     runs: Mapped[list[IngestionRun]] = relationship(back_populates="feuille")
 
+
 class MappingFeuille(Base):
     """Mapping validé par l'utilisateur pour une feuille."""
 
@@ -340,6 +327,7 @@ class MappingFeuille(Base):
     )
 
     feuille: Mapped[Feuille] = relationship(back_populates="mappings")
+
 
 class IngestionRun(Base):
     """Exécution d'ingestion avec paramètres choisis par l'utilisateur."""
@@ -475,9 +463,11 @@ class Ouvrage(Base):
     id_localite: Mapped[int] = mapped_column(
         Integer, ForeignKey("localite.id_localite", ondelete="RESTRICT"), nullable=False
     )
-    id_type_ouvrage: Mapped[int] = mapped_column(
-        Integer, ForeignKey("type_ouvrage.id_type_ouvrage", ondelete="RESTRICT"), nullable=False
-    )
+    # Nouveaux champs
+    nature_ouvrage: Mapped[str | None] = mapped_column(String(20))
+    type_alimentation: Mapped[str | None] = mapped_column(String(20))
+    realisation_par: Mapped[str | None] = mapped_column(String(20))
+
     etat: Mapped[str] = mapped_column(String(20), nullable=False, default="inconnu")
     annee_realisation: Mapped[int | None] = mapped_column(Integer)
     latitude_decimal: Mapped[float | None] = mapped_column()
@@ -495,28 +485,22 @@ class Ouvrage(Base):
     )
 
     __table_args__ = (
-        CheckConstraint(
-            "etat IN ('fonctionnel','en_panne','abandonne','inconnu')",
-            name="ouvrage_etat_check",
-        ),
+        CheckConstraint("nature_ouvrage IS NULL OR nature_ouvrage IN ('puits','forage','inconnu')", name="ouvrage_nature_check"),
+        CheckConstraint("type_alimentation IS NULL OR type_alimentation IN ('PMH','HVA','PEA','HV','AUTRE')", name="ouvrage_alimentation_check"),
+        CheckConstraint("realisation_par IS NULL OR realisation_par IN ('public','prive','inconnu')", name="ouvrage_realisation_check"),
+        CheckConstraint("etat IN ('fonctionnel','en_panne','abandonne','inconnu')", name="ouvrage_etat_check"),
         Index("idx_ouvrage_localite", "id_localite"),
-        Index("idx_ouvrage_type", "id_type_ouvrage"),
-        # idx_ouvrage_geom : GIST sur colonne générée, créé en migration
+        Index("idx_ouvrage_nature", "nature_ouvrage"),
+        Index("idx_ouvrage_alimentation", "type_alimentation"),
+        Index("idx_ouvrage_realisation", "realisation_par"),
         Index("idx_ouvrage_etat", "etat"),
-        Index(
-            "idx_ouvrage_code",
-            "code_ouvrage",
-            postgresql_where="code_ouvrage IS NOT NULL",
-        ),
+        Index("idx_ouvrage_code", "code_ouvrage", postgresql_where="code_ouvrage IS NOT NULL"),
         Index("idx_ouvrage_metadata", "metadata", postgresql_using="gin"),
     )
 
     localite: Mapped[Localite] = relationship(back_populates="ouvrages")
-    type_ouvrage: Mapped[TypeOuvrage] = relationship(back_populates="ouvrages")
     cgpes: Mapped[list[CGPE]] = relationship(back_populates="ouvrage")
-    financements: Mapped[list[OuvrageProjet]] = relationship(
-        back_populates="ouvrage", cascade="all, delete-orphan"
-    )
+    financements: Mapped[list[OuvrageProjet]] = relationship(back_populates="ouvrage", cascade="all, delete-orphan")
     lignes_sources: Mapped[list[LigneIngeree]] = relationship(back_populates="ouvrage_consolide")
 
 

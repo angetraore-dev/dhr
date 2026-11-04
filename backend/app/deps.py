@@ -50,17 +50,21 @@ class OuvrageFilters:
 
     def __init__(
         self,
-        type_ouvrage: str | None = Query(None, description="Code type d'ouvrage"),
+        type_alimentation: str | None = Query(None, description="Type d'alimentation (PMH, HVA...)"),
+        nature_ouvrage: str | None = Query(None, description="Nature (puits, forage)"),
+        realisation_par: str | None = Query(None, description="Public ou privé"),
         etat: Literal["fonctionnel", "en_panne", "abandonne", "inconnu"] | None = Query(None),
         region: str | None = Query(None),
         departement: str | None = Query(None),
         sous_prefecture: str | None = Query(None),
-        localite: str | None = Query(None, description="Recherche floue sur le nom de la localite"),
-        bailleur: str | None = Query(None, description="Nom du bailleur (ex. UNICEF)"),
+        localite: str | None = Query(None),
+        bailleur: str | None = Query(None),
         annee_min: int | None = Query(None, ge=1900),
         annee_max: int | None = Query(None, ge=1900),
     ):
-        self.type_ouvrage = type_ouvrage
+        self.type_alimentation = type_alimentation
+        self.nature_ouvrage = nature_ouvrage
+        self.realisation_par = realisation_par
         self.etat = etat
         self.region = region
         self.departement = departement
@@ -72,7 +76,9 @@ class OuvrageFilters:
 
     def to_dict(self) -> dict:
         return {
-            "type_ouvrage": self.type_ouvrage,
+            "type_alimentation": self.type_alimentation,
+            "nature_ouvrage": self.nature_ouvrage,
+            "realisation_par": self.realisation_par,
             "etat": self.etat,
             "region": self.region,
             "departement": self.departement,

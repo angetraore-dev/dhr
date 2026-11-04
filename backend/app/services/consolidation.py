@@ -2,11 +2,11 @@
 Service de consolidation : ligne_ingeree → ouvrage.
 
 Pour chaque ligne_ingeree avec statut_qualite='ok' et id_localite rempli :
-1. Détermine le type d'ouvrage (priorité : nom de la feuille > type_ouvrage_brut)
-2. Cherche un ouvrage existant (dédoublonnage)
-3. Si trouvé : met à jour (complète les champs vides)
-4. Sinon : crée un ouvrage
-5. Marque ligne_ingeree.id_ouvrage_consolide
+1. Détermine la nature (puits/forage), l'alimentation (PMH/HVA...) et la réalisation (public/privé).
+2. Cherche un ouvrage existant (dédoublonnage).
+3. Si trouvé : met à jour (complète les champs vides).
+4. Sinon : crée un ouvrage.
+5. Marque ligne_ingeree.id_ouvrage_consolide.
 """
 from __future__ import annotations
 
@@ -16,18 +16,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import (
-    Feuille,
-    LigneIngeree,
-    Ouvrage,
-    TypeOuvrage,
-)
+from app.models import Feuille, LigneIngeree, Ouvrage
 
 logger = logging.getLogger("dhr.consolidation")
 
 
 # =====================================================================
-# Helpers de normalisation
+# Helpers de mapping
 # =====================================================================
 def _normaliser(texte: str | None) -> str:
     if texte is None:
@@ -43,62 +38,59 @@ def _normaliser(texte: str | None) -> str:
     return texte
 
 
-def _get_type_ouvrage(db: Session, code: str) -> TypeOuvrage:
-    t = db.scalar(select(TypeOuvrage).where(TypeOuvrage.code == code))
-    if t is None:
-        raise ValueError(f"TypeOuvrage '{code}' introuvable")
-    return t
-
-
-# =====================================================================
-# Mapping type d'ouvrage (priorité : nom de feuille)
-# =====================================================================
-def _map_type_ouvrage_avec_feuille(
-    type_brut: str | None,
-    nom_feuille: str,
-    db: Session,
-) -> TypeOuvrage:
-    """
-    Détermine le TypeOuvrage.
-    Priorité 1 : nom de la feuille (PMH, HVA, PEA, HV).
-    Priorité 2 : type_ouvrage_brut (mots-clés).
-    """
-    nom_upper = nom_feuille.upper()
-
-    if "PMH" in nom_upper:
-        return _get_type_ouvrage(db, "PMH")
-    if "HVA" in nom_upper:
-        return _get_type_ouvrage(db, "HVA")
-    if "PEA" in nom_upper:
-        return _get_type_ouvrage(db, "PEA")
-    if "HV" in nom_upper:
-        return _get_type_ouvrage(db, "HV")
-
-    # Fallback : type_ouvrage_brut
-    if not type_brut:
-        return _get_type_ouvrage(db, "AUTRE")
-
+def _map_nature(type_brut: str | None) -> str:
+    """Détermine la nature : 'puits', 'forage' ou 'inconnu'."""
     norm = _normaliser(type_brut)
-
-    if "pmh" in norm or "motricite" in norm or "pompe" in norm:
-        return _get_type_ouvrage(db, "PMH")
-    if "hva" in norm or "villageoise amelioree" in norm:
-        return _get_type_ouvrage(db, "HVA")
-    if "hv" in norm or "villageoise" in norm:
-        return _get_type_ouvrage(db, "HV")
-    if "pea" in norm or "autonome" in norm:
-        return _get_type_ouvrage(db, "PEA")
-    if "forage" in norm:
-        return _get_type_ouvrage(db, "PMH")
     if "puits" in norm:
-        return _get_type_ouvrage(db, "AUTRE")
+        return "puits"
+    if "forage" in norm:
+        return "forage"
+    return "inconnu"
 
-    return _get_type_ouvrage(db, "AUTRE")
+
+def _map_alimentation(type_brut: str | None, nom_feuille: str) -> str:
+    """Détermine l'alimentation (PMH, HVA, PEA, HV, AUTRE). Priorité au nom de feuille."""
+    nom_upper = (nom_feuille or "").upper()
+    if "PMH" in nom_upper:
+        return "PMH"
+    if "HVA" in nom_upper:
+        return "HVA"
+    if "PEA" in nom_upper:
+        return "PEA"
+    if "HV" in nom_upper:
+        return "HV"
+
+    # Fallback sur le type brut
+    norm = _normaliser(type_brut)
+    if "pmh" in norm or "motricite" in norm or "pompe" in norm:
+        return "PMH"
+    if "hva" in norm or "villageoise amelioree" in norm:
+        return "HVA"
+    if "hv" in norm or "villageoise" in norm:
+        return "HV"
+    if "pea" in norm or "autonome" in norm:
+        return "PEA"
+
+    return "AUTRE"
 
 
-# =====================================================================
-# Mapping état
-# =====================================================================
+def _map_realisation(donnees_brutes: dict[str, Any] | None) -> str:
+    """Détermine la réalisation (public, prive, inconnu) depuis les données brutes."""
+    if not donnees_brutes:
+        return "inconnu"
+
+    # Cherche une clé contenant "type de forage" (ex: Q3.1.1h. Type de forage)
+    for k, v in donnees_brutes.items():
+        if k and "type de forage" in k.lower():
+            norm = _normaliser(str(v))
+            if "public" in norm or "administratif" in norm:
+                return "public"
+            if "prive" in norm or "privé" in norm:
+                return "prive"
+
+    return "inconnu"
+
+
 def _map_etat(etat_brut: str | None) -> str:
     if not etat_brut:
         return "inconnu"
@@ -108,24 +100,25 @@ def _map_etat(etat_brut: str | None) -> str:
         return "fonctionnel"
     if any(w in norm for w in ("panne", "mauvais", "dysfonction", "non fonctionnel")):
         return "en_panne"
-    if any(w in norm for w in ("abandon", "detruit", "inexistant")):
+    if any(w for w in ("abandon", "detruit", "inexistant")):
         return "abandonne"
 
     return "inconnu"
 
 
 # =====================================================================
-# Recherche d'un ouvrage existant (dédoublonnage)
+# Recherche d'un ouvrage existant
 # =====================================================================
 def _trouver_ouvrage_existant(
     db: Session,
     ligne: LigneIngeree,
-    id_type_ouvrage: int,
+    nature_ouvrage: str,
+    type_alimentation: str,
 ) -> Ouvrage | None:
     """
     Cherche un ouvrage existant.
     Priorité 1 : code_ouvrage
-    Priorité 2 : (id_localite, id_type_ouvrage, annee_realisation)
+    Priorité 2 : (id_localite, nature_ouvrage, type_alimentation, annee_realisation)
     """
     code = None
     if ligne.donnees_brutes:
@@ -153,7 +146,8 @@ def _trouver_ouvrage_existant(
         existing = db.scalar(
             select(Ouvrage).where(
                 Ouvrage.id_localite == ligne.id_localite,
-                Ouvrage.id_type_ouvrage == id_type_ouvrage,
+                Ouvrage.nature_ouvrage == nature_ouvrage,
+                Ouvrage.type_alimentation == type_alimentation,
                 Ouvrage.annee_realisation == ligne.annee_projet,
             )
         )
@@ -179,12 +173,17 @@ def _consolider_ligne(
     if ligne.latitude_decimal is None or ligne.longitude_decimal is None:
         return None
 
-    type_ouvrage = _map_type_ouvrage_avec_feuille(ligne.type_ouvrage_brut, nom_feuille, db)
+    # Mappings
+    nature = _map_nature(ligne.type_ouvrage_brut)
+    alimentation = _map_alimentation(ligne.type_ouvrage_brut, nom_feuille)
+    realisation = _map_realisation(ligne.donnees_brutes)
     etat = _map_etat(ligne.etat_ouvrage_brut)
 
-    existing = _trouver_ouvrage_existant(db, ligne, type_ouvrage.id_type_ouvrage)
+    # Recherche d'un doublon
+    existing = _trouver_ouvrage_existant(db, ligne, nature, alimentation)
 
     if existing is not None:
+        # Mise à jour des champs vides
         if existing.annee_realisation is None and ligne.annee_projet is not None:
             existing.annee_realisation = ligne.annee_projet
         if existing.latitude_decimal is None:
@@ -193,6 +192,14 @@ def _consolider_ligne(
             existing.longitude_decimal = ligne.longitude_decimal
         if existing.etat == "inconnu" and etat != "inconnu":
             existing.etat = etat
+        if existing.nature_ouvrage == "inconnu" and nature != "inconnu":
+            existing.nature_ouvrage = nature
+        if existing.type_alimentation == "AUTRE" and alimentation != "AUTRE":
+            existing.type_alimentation = alimentation
+        if existing.realisation_par == "inconnu" and realisation != "inconnu":
+            existing.realisation_par = realisation
+
+        # Fusion metadata
         if ligne.donnees_brutes:
             meta = existing.metadata_ or {}
             for k, v in ligne.donnees_brutes.items():
@@ -201,6 +208,7 @@ def _consolider_ligne(
             existing.metadata_ = meta
         return existing
 
+    # Création
     metadata = {}
     if ligne.donnees_brutes:
         for k, v in ligne.donnees_brutes.items():
@@ -217,7 +225,9 @@ def _consolider_ligne(
     ouvrage = Ouvrage(
         code_ouvrage=code_ouvrage,
         id_localite=ligne.id_localite,
-        id_type_ouvrage=type_ouvrage.id_type_ouvrage,
+        nature_ouvrage=nature,
+        type_alimentation=alimentation,
+        realisation_par=realisation,
         etat=etat,
         annee_realisation=ligne.annee_projet,
         latitude_decimal=ligne.latitude_decimal,
@@ -250,7 +260,6 @@ def consolider_lignes_run(
     for f in db.scalars(select(Feuille)).all():
         feuilles_cache[f.id_feuille] = f.nom_feuille
 
-   # Filtre les lignes qui viennent de feuilles "Localités" (pas des ouvrages)
     def _est_feuille_localites(nom_feuille: str) -> bool:
         norm = _normaliser(nom_feuille)
         return "localite" in norm or "village" in norm or "campement" in norm
@@ -268,13 +277,15 @@ def consolider_lignes_run(
         try:
             nom_feuille = feuilles_cache.get(ligne.id_feuille, "")
 
-            # Ignore les lignes de la feuille "Localités"
+            # Ignore les localités
             if _est_feuille_localites(nom_feuille):
                 stats["lignes_localites_ignorees"] += 1
                 continue
 
-            type_ouvrage = _map_type_ouvrage_avec_feuille(ligne.type_ouvrage_brut, nom_feuille, db)
-            existing_before = _trouver_ouvrage_existant(db, ligne, type_ouvrage.id_type_ouvrage)
+            # Mappings pour vérifier l'existant
+            nature = _map_nature(ligne.type_ouvrage_brut)
+            alimentation = _map_alimentation(ligne.type_ouvrage_brut, nom_feuille)
+            existing_before = _trouver_ouvrage_existant(db, ligne, nature, alimentation)
 
             ouvrage = _consolider_ligne(db, ligne, nom_feuille)
 

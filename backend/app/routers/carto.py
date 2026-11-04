@@ -18,7 +18,6 @@ from app.auth import require_api_key
 from app.db import get_db
 from app.deps import OuvrageFilters
 from app.models import (
-    CGPE,
     Feuille,
     Fichier,
     LigneIngeree,
@@ -28,7 +27,6 @@ from app.models import (
     ProjetFinancement,
     RefGeoAdmin,
     Source,
-    TypeOuvrage,
 )
 
 router = APIRouter(
@@ -64,17 +62,13 @@ def _ligne_to_feature(
     if geom is None:
         return None
 
-    # Type d'ouvrage déduit du nom de feuille (prioritaire) ou brut
-    type_ouvrage = ligne.type_ouvrage_brut
+    # Alimentation déduite du nom de feuille
+    type_alimentation = "AUTRE"
     nom_upper = (nom_feuille or "").upper()
-    if "PMH" in nom_upper:
-        type_ouvrage = "PMH"
-    elif "HVA" in nom_upper:
-        type_ouvrage = "HVA"
-    elif "PEA" in nom_upper:
-        type_ouvrage = "PEA"
-    elif "HV" in nom_upper:
-        type_ouvrage = "HV"
+    if "PMH" in nom_upper: type_alimentation = "PMH"
+    elif "HVA" in nom_upper: type_alimentation = "HVA"
+    elif "PEA" in nom_upper: type_alimentation = "PEA"
+    elif "HV" in nom_upper: type_alimentation = "HV"
 
     return {
         "type": "Feature",
@@ -84,7 +78,7 @@ def _ligne_to_feature(
             "id_ligne": ligne.id_ligne,
             "id_fichier": fichier.id_fichier,
             "nom_fichier": fichier.nom_fichier_original,
-            "type_ouvrage": type_ouvrage,
+            "type_alimentation": type_alimentation,
             "statut_qualite": ligne.statut_qualite,
             "localite": ligne.localite_brute,
             # Données brutes pour le popup
@@ -119,7 +113,9 @@ def _ouvrage_to_feature(
         "properties": {
             "id_ouvrage": o.id_ouvrage,
             "code_ouvrage": o.code_ouvrage,
-            "type_ouvrage": o.type_ouvrage.code if o.type_ouvrage else None,
+            "nature_ouvrage": o.nature_ouvrage,
+            "type_alimentation": o.type_alimentation,
+            "realisation_par": o.realisation_par,
             "etat": o.etat,
             "annee_realisation": o.annee_realisation,
             "localite": o.localite.nom_usage if o.localite else None,
@@ -136,7 +132,7 @@ def _build_feature_collection_fichier(
     id_feuille: int | None,
     id_run: int | None,
     statut_qualite: str | None,
-    type_ouvrage: str | None,
+    type_alimentation: str | None,
     db: Session,
 ) -> dict[str, Any]:
     fichier = db.get(Fichier, id_fichier)
@@ -171,8 +167,8 @@ def _build_feature_collection_fichier(
         stmt = stmt.where(LigneIngeree.id_run == id_run)
     if statut_qualite is not None:
         stmt = stmt.where(LigneIngeree.statut_qualite == statut_qualite)
-    if type_ouvrage is not None:
-        stmt = stmt.where(LigneIngeree.type_ouvrage_brut == type_ouvrage)
+    if type_alimentation is not None:
+        stmt = stmt.where(LigneIngeree.type_ouvrage_brut == type_alimentation)
 
     rows = db.execute(stmt).all()
     features = []
@@ -204,15 +200,18 @@ def _build_feature_collection_tous(
             func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
         )
         .options(
-            selectinload(Ouvrage.type_ouvrage),
             selectinload(Ouvrage.localite).selectinload(Localite.ref_geo),
             selectinload(Ouvrage.cgpes),
         )
     )
 
     # Filtres métier
-    if filters.type_ouvrage:
-        stmt = stmt.join(TypeOuvrage).where(TypeOuvrage.code == filters.type_ouvrage)
+    if filters.type_alimentation:
+        stmt = stmt.where(Ouvrage.type_alimentation == filters.type_alimentation)
+    if filters.nature_ouvrage:
+        stmt = stmt.where(Ouvrage.nature_ouvrage == filters.nature_ouvrage)
+    if filters.realisation_par:
+        stmt = stmt.where(Ouvrage.realisation_par == filters.realisation_par)
     if filters.etat:
         stmt = stmt.where(Ouvrage.etat == filters.etat)
     if filters.annee_min is not None:
@@ -224,8 +223,6 @@ def _build_feature_collection_tous(
     if filters.region or filters.departement or filters.sous_prefecture or filters.localite:
         stmt = stmt.join(Ouvrage.localite)
 
-        # On utilise une référence à ref_geo_admin et ses parents
-        from sqlalchemy.orm import aliased
         rg_loc = aliased(RefGeoAdmin) # Niveau localité
         rg_sp = aliased(RefGeoAdmin)  # Niveau sous-prefecture
         rg_dep = aliased(RefGeoAdmin) # Niveau departement
@@ -286,7 +283,7 @@ def points_fichier(
         "ok", "localite_non_resolue", "geom_invalide",
         "type_ouvrage_inconnu", "rejete", "doublon_suspect",
     ] | None = Query(None),
-    type_ouvrage: str | None = Query(None),
+    type_alimentation: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     return _build_feature_collection_fichier(
@@ -294,7 +291,7 @@ def points_fichier(
         id_feuille=id_feuille,
         id_run=id_run,
         statut_qualite=statut_qualite,
-        type_ouvrage=type_ouvrage,
+        type_alimentation=type_alimentation,
         db=db,
     )
 
@@ -331,7 +328,7 @@ def telecharger_geojson_fichier(
         id_feuille=id_feuille,
         id_run=id_run,
         statut_qualite=statut_qualite,
-        type_ouvrage=None,
+        type_alimentation=None,
         db=db,
     )
     payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
