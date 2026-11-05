@@ -62,13 +62,30 @@ def _ligne_to_feature(
     if geom is None:
         return None
 
-    # Alimentation déduite du nom de feuille
+    # Type d'alimentation déduit du nom de feuille
     type_alimentation = "AUTRE"
     nom_upper = (nom_feuille or "").upper()
     if "PMH" in nom_upper: type_alimentation = "PMH"
     elif "HVA" in nom_upper: type_alimentation = "HVA"
     elif "PEA" in nom_upper: type_alimentation = "PEA"
     elif "HV" in nom_upper: type_alimentation = "HV"
+
+    # Nature extraite des données brutes
+    nature_ouvrage = "inconnu"
+    realisation_par = "inconnu"
+    if ligne.donnees_brutes:
+        for k, v in ligne.donnees_brutes.items():
+            if not v:
+                continue
+            k_lower = k.lower()
+            if "type d'ouvrage" in k_lower or "type d ouvrage" in k_lower:
+                v_str = str(v).strip().lower()
+                if "forage" in v_str: nature_ouvrage = "forage"
+                elif "puits" in v_str: nature_ouvrage = "puits"
+            elif "type de forage" in k_lower:
+                v_str = str(v).strip().lower()
+                if "public" in v_str or "administratif" in v_str: realisation_par = "public"
+                elif "prive" in v_str or "privé" in v_str: realisation_par = "prive"
 
     return {
         "type": "Feature",
@@ -79,15 +96,14 @@ def _ligne_to_feature(
             "id_fichier": fichier.id_fichier,
             "nom_fichier": fichier.nom_fichier_original,
             "type_alimentation": type_alimentation,
+            "nature_ouvrage": nature_ouvrage,
+            "realisation_par": realisation_par,
             "statut_qualite": ligne.statut_qualite,
             "localite": ligne.localite_brute,
-            # Données brutes pour le popup
             "donnees_brutes": ligne.donnees_brutes or {},
-            # Pas de details structurés en mode brut
             "details": None,
         },
     }
-
 
 def _ouvrage_to_feature(
     o: Ouvrage,
@@ -133,6 +149,8 @@ def _build_feature_collection_fichier(
     id_run: int | None,
     statut_qualite: str | None,
     type_alimentation: str | None,
+    nature_ouvrage: str | None,
+    realisation_par: str | None,
     db: Session,
 ) -> dict[str, Any]:
     fichier = db.get(Fichier, id_fichier)
@@ -169,6 +187,23 @@ def _build_feature_collection_fichier(
         stmt = stmt.where(LigneIngeree.statut_qualite == statut_qualite)
     if type_alimentation is not None:
         stmt = stmt.where(LigneIngeree.type_ouvrage_brut == type_alimentation)
+
+    # Filtre nature (on filtre sur les données brutes en JSONB)
+    if nature_ouvrage:
+        if nature_ouvrage == "forage":
+            stmt = stmt.where(func.lower(literal_column("ligne_ingeree.donnees_brutes::text")).contains('"forage"'))
+        elif nature_ouvrage == "puits":
+            stmt = stmt.where(func.lower(literal_column("ligne_ingeree.donnees_brutes::text")).contains('"puits"'))
+
+    # Filtre réalisation (on filtre sur les données brutes en JSONB)
+    if realisation_par:
+        if realisation_par == "public":
+            stmt = stmt.where(
+                func.lower(literal_column("ligne_ingeree.donnees_brutes::text")).contains('"public"') |
+                func.lower(literal_column("ligne_ingeree.donnees_brutes::text")).contains('"administratif"')
+            )
+        elif realisation_par == "prive":
+            stmt = stmt.where(func.lower(literal_column("ligne_ingeree.donnees_brutes::text")).contains('"prive"'))
 
     rows = db.execute(stmt).all()
     features = []
@@ -251,9 +286,7 @@ def _build_feature_collection_tous(
     features = []
     for row in rows:
         o, geojson_str = row[0], row[1]
-        # Extrait les métadonnées de localité (via sa ref_geo)
         loc_meta = o.localite.metadata_ if o.localite else {}
-        # Extrait les métadonnées du premier CGPE (s'il existe)
         cgpe_meta = o.cgpes[0].metadata_ if o.cgpes else {}
 
         feature = _ouvrage_to_feature(o, geojson_str, loc_meta, cgpe_meta)
@@ -284,6 +317,8 @@ def points_fichier(
         "type_ouvrage_inconnu", "rejete", "doublon_suspect",
     ] | None = Query(None),
     type_alimentation: str | None = Query(None),
+    nature_ouvrage: str | None = Query(None),
+    realisation_par: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     return _build_feature_collection_fichier(
@@ -292,6 +327,8 @@ def points_fichier(
         id_run=id_run,
         statut_qualite=statut_qualite,
         type_alimentation=type_alimentation,
+        nature_ouvrage=nature_ouvrage,
+        realisation_par=realisation_par,
         db=db,
     )
 
@@ -329,6 +366,8 @@ def telecharger_geojson_fichier(
         id_run=id_run,
         statut_qualite=statut_qualite,
         type_alimentation=None,
+        nature_ouvrage=None,
+        realisation_par=None,
         db=db,
     )
     payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
