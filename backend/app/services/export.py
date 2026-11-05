@@ -1,7 +1,7 @@
 """
 Service d'export Excel/CSV streamé.
 
-- Excel : XlsxWriter en mode constant_memory (mémoire constante, 2x plus rapide)
+- Excel : XlsxWriter en mode in_memory (export borné à MAX_EXPORT_ROWS)
 - CSV  : module csv stdlib, streaming
 - Colonne N° incrémentale
 - Feuille Synthèse avec KPI (optionnelle, XlsxWriter gère le merge)
@@ -133,6 +133,33 @@ def _build_row(
     return row
 
 
+# =====================================================================
+# Filtres communs (factorisation — garantit la cohérence KPI / export)
+# =====================================================================
+def _apply_common_filters(stmt, filters: dict[str, Any]):
+    """Applique les filtres métier + année communs à toutes les requêtes.
+
+    Ne gère PAS les filtres géographiques (region/departement/...) :
+    ces derniers ne sont pas utilisés dans export.py aujourd'hui.
+    """
+    if filters.get("type_alimentation"):
+        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
+    if filters.get("nature_ouvrage"):
+        stmt = stmt.where(Ouvrage.nature_ouvrage == filters["nature_ouvrage"])
+    if filters.get("realisation_par"):
+        stmt = stmt.where(Ouvrage.realisation_par == filters["realisation_par"])
+    if filters.get("etat"):
+        stmt = stmt.where(Ouvrage.etat == filters["etat"])
+    if filters.get("annee_min") is not None:
+        stmt = stmt.where(Ouvrage.annee_realisation >= filters["annee_min"])
+    if filters.get("annee_max") is not None:
+        stmt = stmt.where(Ouvrage.annee_realisation <= filters["annee_max"])
+    return stmt
+
+
+# =====================================================================
+# Itération / comptage
+# =====================================================================
 def _iter_ouvrages(
     db: Session,
     filters: dict[str, Any],
@@ -149,18 +176,7 @@ def _iter_ouvrages(
         )
         .order_by(Ouvrage.id_ouvrage)
     )
-    if filters.get("type_alimentation"):
-        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
-    if filters.get("nature_ouvrage"):
-        stmt = stmt.where(Ouvrage.nature_ouvrage == filters["nature_ouvrage"])
-    if filters.get("realisation_par"):
-        stmt = stmt.where(Ouvrage.realisation_par == filters["realisation_par"])
-    if filters.get("etat"):
-        stmt = stmt.where(Ouvrage.etat == filters["etat"])
-    if filters.get("annee_min") is not None:
-        stmt = stmt.where(Ouvrage.annee_realisation >= filters["annee_min"])
-    if filters.get("annee_max") is not None:
-        stmt = stmt.where(Ouvrage.annee_realisation <= filters["annee_max"])
+    stmt = _apply_common_filters(stmt, filters)
 
     result = db.execute(stmt).yield_per(chunk_size)
     chunk: list[Ouvrage] = []
@@ -175,18 +191,7 @@ def _iter_ouvrages(
 
 def _count_ouvrages(db: Session, filters: dict[str, Any]) -> int:
     stmt = select(func.count()).select_from(Ouvrage)
-    if filters.get("type_alimentation"):
-        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
-    if filters.get("nature_ouvrage"):
-        stmt = stmt.where(Ouvrage.nature_ouvrage == filters["nature_ouvrage"])
-    if filters.get("realisation_par"):
-        stmt = stmt.where(Ouvrage.realisation_par == filters["realisation_par"])
-    if filters.get("etat"):
-        stmt = stmt.where(Ouvrage.etat == filters["etat"])
-    if filters.get("annee_min") is not None:
-        stmt = stmt.where(Ouvrage.annee_realisation >= filters["annee_min"])
-    if filters.get("annee_max") is not None:
-        stmt = stmt.where(Ouvrage.annee_realisation <= filters["annee_max"])
+    stmt = _apply_common_filters(stmt, filters)
     return db.scalar(stmt) or 0
 
 
@@ -214,54 +219,48 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     kpis: dict[str, Any] = {}
     kpis["total"] = _count_ouvrages(db, filters)
 
-    # Par type d'alimentation
-    stmt = (
-        select(Ouvrage.type_alimentation, func.count())
-        .select_from(Ouvrage)
-        .group_by(Ouvrage.type_alimentation)
-        .order_by(func.count().desc())
-    )
-    if filters.get("etat"):
-        stmt = stmt.where(Ouvrage.etat == filters["etat"])
-    if filters.get("annee_min") is not None:
-        stmt = stmt.where(Ouvrage.annee_realisation >= filters["annee_min"])
-    if filters.get("annee_max") is not None:
-        stmt = stmt.where(Ouvrage.annee_realisation <= filters["annee_max"])
-    if filters.get("type_alimentation"):
-        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
+    # --- Par type d'alimentation ---
+    stmt = select(Ouvrage.type_alimentation, func.count()).select_from(Ouvrage)
+    stmt = _apply_common_filters(stmt, filters)
+    stmt = stmt.group_by(Ouvrage.type_alimentation).order_by(func.count().desc())
     kpis["par_type_alimentation"] = dict(db.execute(stmt).all())
 
-    # Par état
-    stmt = select(Ouvrage.etat, func.count()).group_by(Ouvrage.etat).order_by(func.count().desc())
-    if filters.get("type_alimentation"):
-        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
-    if filters.get("annee_min") is not None:
-        stmt = stmt.where(Ouvrage.annee_realisation >= filters["annee_min"])
-    if filters.get("annee_max") is not None:
-        stmt = stmt.where(Ouvrage.annee_realisation <= filters["annee_max"])
+    # --- Par nature ---
+    stmt = select(Ouvrage.nature_ouvrage, func.count()).select_from(Ouvrage)
+    stmt = _apply_common_filters(stmt, filters)
+    stmt = stmt.group_by(Ouvrage.nature_ouvrage).order_by(func.count().desc())
+    kpis["par_nature"] = dict(db.execute(stmt).all())
+
+    # --- Par réalisation ---
+    stmt = select(Ouvrage.realisation_par, func.count()).select_from(Ouvrage)
+    stmt = _apply_common_filters(stmt, filters)
+    stmt = stmt.group_by(Ouvrage.realisation_par).order_by(func.count().desc())
+    kpis["par_realisation"] = dict(db.execute(stmt).all())
+
+    # --- Par état ---
+    stmt = select(Ouvrage.etat, func.count()).select_from(Ouvrage)
+    stmt = _apply_common_filters(stmt, filters)
+    stmt = stmt.group_by(Ouvrage.etat).order_by(func.count().desc())
     kpis["par_etat"] = dict(db.execute(stmt).all())
 
-    # Par bailleur
+    # --- Par bailleur ---
     stmt = (
         select(Source.nom, func.count(func.distinct(Ouvrage.id_ouvrage)))
         .select_from(Ouvrage)
         .join(OuvrageProjet, OuvrageProjet.id_ouvrage == Ouvrage.id_ouvrage)
         .join(ProjetFinancement, ProjetFinancement.id_projet == OuvrageProjet.id_projet)
         .join(Source, Source.id_source == ProjetFinancement.id_source_financeur)
-        .group_by(Source.nom)
-        .order_by(func.count(func.distinct(Ouvrage.id_ouvrage)).desc())
     )
-    if filters.get("type_alimentation"):
-        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
-    if filters.get("etat"):
-        stmt = stmt.where(Ouvrage.etat == filters["etat"])
-    if filters.get("annee_min") is not None:
-        stmt = stmt.where(Ouvrage.annee_realisation >= filters["annee_min"])
-    if filters.get("annee_max") is not None:
-        stmt = stmt.where(Ouvrage.annee_realisation <= filters["annee_max"])
+    stmt = _apply_common_filters(stmt, filters)
+    stmt = stmt.group_by(Source.nom).order_by(
+        func.count(func.distinct(Ouvrage.id_ouvrage)).desc()
+    )
     kpis["par_bailleur"] = dict(db.execute(stmt).all())
 
-    # Par district (CTE récursive)
+    # --- Par district (CTE récursive, filtrée) ---
+    # On injecte dynamiquement les filtres dans le WHERE du CTE final.
+    # Les valeurs viennent de OuvrageFilters (Pydantic) : str | int | None.
+    # On utilise des paramètres liés pour éviter toute injection.
     district_of_sql = """
         WITH RECURSIVE district_of AS (
             SELECT id_geo, id_geo AS district_id
@@ -276,60 +275,98 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
         JOIN localite l ON l.id_localite = o.id_localite
         JOIN district_of d ON d.id_geo = l.id_geo
         JOIN ref_geo_admin r ON r.id_geo = d.district_id
+        WHERE 1=1
+          {extra_filters}
         GROUP BY r.nom
         ORDER BY nb DESC
     """
-    rows = db.execute(text(district_of_sql)).all()
+
+    where_clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if filters.get("type_alimentation"):
+        where_clauses.append("AND o.type_alimentation = :type_alimentation")
+        params["type_alimentation"] = filters["type_alimentation"]
+    if filters.get("nature_ouvrage"):
+        where_clauses.append("AND o.nature_ouvrage = :nature_ouvrage")
+        params["nature_ouvrage"] = filters["nature_ouvrage"]
+    if filters.get("realisation_par"):
+        where_clauses.append("AND o.realisation_par = :realisation_par")
+        params["realisation_par"] = filters["realisation_par"]
+    if filters.get("etat"):
+        where_clauses.append("AND o.etat = :etat")
+        params["etat"] = filters["etat"]
+    if filters.get("annee_min") is not None:
+        where_clauses.append("AND o.annee_realisation >= :annee_min")
+        params["annee_min"] = filters["annee_min"]
+    if filters.get("annee_max") is not None:
+        where_clauses.append("AND o.annee_realisation <= :annee_max")
+        params["annee_max"] = filters["annee_max"]
+
+    final_sql = district_of_sql.format(extra_filters="\n          ".join(where_clauses))
+    rows = db.execute(text(final_sql), params).all()
     kpis["par_district"] = {r[0]: r[1] for r in rows}
 
-    # Années
+    # --- Années ---
     stmt = select(
         func.min(Ouvrage.annee_realisation),
         func.max(Ouvrage.annee_realisation),
         func.avg(Ouvrage.annee_realisation),
-    )
-    if filters.get("type_alimentation"):
-        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
-    if filters.get("etat"):
-        stmt = stmt.where(Ouvrage.etat == filters["etat"])
+    ).select_from(Ouvrage)
+    stmt = _apply_common_filters(stmt, filters)
     row = db.execute(stmt).first()
     kpis["annee_min"] = row[0] if row else None
     kpis["annee_max"] = row[1] if row else None
     kpis["annee_moy"] = round(row[2], 1) if row and row[2] is not None else None
 
-    # Géolocalisation
+    # --- Géolocalisation ---
+    # Attention : on référence la colonne générée `geom` en SQL brut.
+    # La table s'appelle `ouvrage` (minuscule en DB) : on écrit `geom` sans préfixe.
     stmt = (
         select(
-            func.count().filter(text("Ouvrage.geom IS NOT NULL")),
+            func.count().filter(text("geom IS NOT NULL")),
             func.count(),
         )
         .select_from(Ouvrage)
     )
-
-    if filters.get("type_alimentation"):
-        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
-    if filters.get("etat"):
-        stmt = stmt.where(Ouvrage.etat == filters["etat"])
+    stmt = _apply_common_filters(stmt, filters)
     row = db.execute(stmt).first()
     kpis["geo_avec"] = row[0] if row else 0
     kpis["geo_total"] = row[1] if row else 0
-    kpis["taux_geo"] = round((row[0] / row[1]) if row and row[1] > 0 else 0.0, 3)
+    kpis["taux_geo"] = round(
+        (row[0] / row[1]) if row and row[1] > 0 else 0.0, 3
+    )
 
-    # CGPE
-    stmt = select(
-        func.count().filter(CGPE.existe == True, CGPE.statut == "fonctionnel"),
-        func.count(CGPE.id_cgpe),
-    ).select_from(CGPE)
-    if filters.get("type_alimentation") or filters.get("etat"):
+    # --- CGPE ---
+    stmt = (
+        select(
+            func.count().filter(CGPE.existe == True, CGPE.statut == "fonctionnel"),
+            func.count(CGPE.id_cgpe),
+        )
+        .select_from(CGPE)
+    )
+    # Les filtres métier portent sur Ouvrage : jointure obligatoire dès qu'un
+    # filtre est actif, sinon le COUNT(CGPE) est global (comportement voulu
+    # quand aucun filtre n'est appliqué).
+    needs_join = any(
+        filters.get(k) is not None
+        for k in (
+            "type_alimentation",
+            "nature_ouvrage",
+            "realisation_par",
+            "etat",
+            "annee_min",
+            "annee_max",
+        )
+    )
+    if needs_join:
         stmt = stmt.join(Ouvrage, Ouvrage.id_ouvrage == CGPE.id_ouvrage)
-        if filters.get("type_alimentation"):
-            stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
-        if filters.get("etat"):
-            stmt = stmt.where(Ouvrage.etat == filters["etat"])
+        stmt = _apply_common_filters(stmt, filters)
     row = db.execute(stmt).first()
     kpis["cgpe_fonctionnel"] = row[0] if row else 0
     kpis["cgpe_total"] = row[1] if row else 0
-    kpis["taux_cgpe"] = round((row[0] / row[1]) if row and row[1] > 0 else 0.0, 3)
+    kpis["taux_cgpe"] = round(
+        (row[0] / row[1]) if row and row[1] > 0 else 0.0, 3
+    )
 
     kpis["filtres"] = {k: v for k, v in filters.items() if v is not None}
     return kpis
@@ -417,6 +454,30 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
         row += 1
     row += 1
 
+    # Par nature
+    ws.merge_range(row, 0, row, 1, "Répartition par nature", fmt_section)
+    row += 1
+    ws.write(row, 0, "Nature", fmt_header)
+    ws.write(row, 1, "Nombre", fmt_header)
+    row += 1
+    for nature, count in kpis["par_nature"].items():
+        ws.write(row, 0, nature or "Inconnu", fmt_label)
+        ws.write(row, 1, count, fmt_label)
+        row += 1
+    row += 1
+
+    # Par réalisation
+    ws.merge_range(row, 0, row, 1, "Répartition par réalisation", fmt_section)
+    row += 1
+    ws.write(row, 0, "Réalisation", fmt_header)
+    ws.write(row, 1, "Nombre", fmt_header)
+    row += 1
+    for realisation, count in kpis["par_realisation"].items():
+        ws.write(row, 0, realisation or "Inconnu", fmt_label)
+        ws.write(row, 1, count, fmt_label)
+        row += 1
+    row += 1
+
     # Par état
     ws.merge_range(row, 0, row, 1, "Répartition par état", fmt_section)
     row += 1
@@ -467,11 +528,13 @@ def export_ouvrages_xlsx(
     include_metadata: bool = False,
     with_summary: bool = True,
 ) -> Generator[bytes, None, None]:
-    # _check_export_limit(db, filters)
+    _check_export_limit(db, filters)
 
     metadata_columns: list[str] = []
     if include_metadata:
-        sample = db.scalars(select(Ouvrage).limit(100)).all()
+        sample = db.scalars(
+            select(Ouvrage).limit(100)
+        ).all()
         cols: set[str] = set()
         for o in sample:
             if o.metadata_:
@@ -521,11 +584,13 @@ def export_ouvrages_csv(
     filters: dict[str, Any],
     include_metadata: bool = False,
 ) -> Generator[str, None, None]:
-    # _check_export_limit(db, filters)
+    _check_export_limit(db, filters)
 
     metadata_columns: list[str] = []
     if include_metadata:
-        sample = db.scalars(select(Ouvrage).limit(100)).all()
+        sample = db.scalars(
+            select(Ouvrage).limit(100)
+        ).all()
         cols: set[str] = set()
         for o in sample:
             if o.metadata_:

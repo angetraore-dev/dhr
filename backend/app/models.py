@@ -477,6 +477,7 @@ class Ouvrage(Base):
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
+    qualite_eau: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -496,6 +497,7 @@ class Ouvrage(Base):
         Index("idx_ouvrage_etat", "etat"),
         Index("idx_ouvrage_code", "code_ouvrage", postgresql_where="code_ouvrage IS NOT NULL"),
         Index("idx_ouvrage_metadata", "metadata", postgresql_using="gin"),
+        Index("idx_ouvrage_qualite_eau", "qualite_eau", postgresql_using="gin"),
     )
 
     localite: Mapped[Localite] = relationship(back_populates="ouvrages")

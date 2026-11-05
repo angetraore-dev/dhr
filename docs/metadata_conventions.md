@@ -1,3 +1,26 @@
+
+```text
+upload.py
+  └→ ingestion.detecter_feuilles
+
+run.py (orchestrateur)
+  ├→ ingestion.ingerer_fichier
+  │    └→ mapping.charger_mapping_pour_ingestion
+  │         └→ patterns.COLUMN_PATTERNS
+  │         └→ ingestion._analyser_entetes (fallback)
+  ├→ rapprochement.rapprocher_lignes_run
+  └→ consolidation.consolider_lignes_run
+
+mapping.py
+  ├→ patterns.COLUMN_PATTERNS
+  └→ schemas.fichiers
+
+coordonnees.py          (feuille)
+patterns.py             (feuille, partagé)
+import_localites.py     (script CLI)
+export.py               (feuille)
+```
+
 # Conventions des métadonnées (`*.metadata`)
 
 ## 1. Objectif

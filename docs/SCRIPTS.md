@@ -415,6 +415,8 @@ En Phase 4.4, on ajoutera :
 
 ---
 ```bash
+# Logs
+docker compose logs backend --tail=30
 # Generer un Token
 docker compose exec backend python -c "from app.auth import create_access_token; print(create_access_token('test', 'admin'))"
 ```

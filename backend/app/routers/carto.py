@@ -7,11 +7,13 @@ WKB (les colonnes générées geom ne sont pas déclarées en ORM).
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
-from sqlalchemy import func, literal_column, select
+from sqlalchemy import func, literal_column, or_, select
 from sqlalchemy.orm import Session, selectinload, aliased
 
 from app.auth import require_api_key
@@ -36,8 +38,22 @@ router = APIRouter(
 
 
 # =====================================================================
-# Helpers GeoJSON
+# Helpers
 # =====================================================================
+def _normaliser(texte: str | None) -> str:
+    """Miroir de consolidation._normaliser — dupliqué localement pour ne pas
+    coupler carto.py au service de consolidation."""
+    if texte is None:
+        return ""
+    texte = str(texte).strip().lower()
+    texte = "".join(
+        c for c in unicodedata.normalize("NFD", texte)
+        if unicodedata.category(c) != "Mn"
+    )
+    texte = re.sub(r"[\s\-_]+", " ", texte).strip()
+    return texte
+
+
 def _parse_geojson_geom(geojson_str: str | None) -> dict[str, Any] | None:
     if not geojson_str:
         return None
@@ -51,6 +67,57 @@ def _parse_geojson_geom(geojson_str: str | None) -> dict[str, Any] | None:
         return None
 
 
+def _infer_type_alimentation(nom_feuille: str | None) -> str:
+    """Déduit le type d'alimentation du nom de feuille.
+    Doit rester cohérent avec consolidation._map_alimentation
+    (mais ici, pas de fallback sur type_ouvrage_brut : on n'a que la feuille)."""
+    nom_upper = (nom_feuille or "").upper()
+    if "PMH" in nom_upper:
+        return "PMH"
+    if "HVA" in nom_upper:
+        return "HVA"
+    if "PEA" in nom_upper:
+        return "PEA"
+    if "HV" in nom_upper:
+        return "HV"
+    return "AUTRE"
+
+
+def _infer_nature_et_realisation(
+    donnees_brutes: dict[str, Any] | None,
+) -> tuple[str, str]:
+    """Extrait nature_ouvrage et realisation_par depuis les données brutes.
+    Aligné sur consolidation._map_nature / _map_realisation."""
+    nature_ouvrage = "inconnu"
+    realisation_par = "inconnu"
+    if not donnees_brutes:
+        return nature_ouvrage, realisation_par
+
+    for k, v in donnees_brutes.items():
+        if not k or not v:
+            continue
+        k_norm = _normaliser(k)
+        v_norm = _normaliser(str(v))
+
+        # Nature : clé "type d'ouvrage"
+        if "type d ouvrage" in k_norm or "type d'ouvrage" in k_norm:
+            if "forage" in v_norm:
+                nature_ouvrage = "forage"
+            elif "puits" in v_norm:
+                nature_ouvrage = "puits"
+
+        # Réalisation : clé "type de forage"
+        # Note : deux `if` (pas `elif`) pour qu'une même clé puisse
+        # renseigner les deux si elle contient les deux expressions.
+        if "type de forage" in k_norm:
+            if "public" in v_norm or "administratif" in v_norm:
+                realisation_par = "public"
+            elif "prive" in v_norm:
+                realisation_par = "prive"
+
+    return nature_ouvrage, realisation_par
+
+
 def _ligne_to_feature(
     ligne: LigneIngeree,
     fichier: Fichier,
@@ -62,30 +129,10 @@ def _ligne_to_feature(
     if geom is None:
         return None
 
-    # Type d'alimentation déduit du nom de feuille
-    type_alimentation = "AUTRE"
-    nom_upper = (nom_feuille or "").upper()
-    if "PMH" in nom_upper: type_alimentation = "PMH"
-    elif "HVA" in nom_upper: type_alimentation = "HVA"
-    elif "PEA" in nom_upper: type_alimentation = "PEA"
-    elif "HV" in nom_upper: type_alimentation = "HV"
-
-    # Nature extraite des données brutes
-    nature_ouvrage = "inconnu"
-    realisation_par = "inconnu"
-    if ligne.donnees_brutes:
-        for k, v in ligne.donnees_brutes.items():
-            if not v:
-                continue
-            k_lower = k.lower()
-            if "type d'ouvrage" in k_lower or "type d ouvrage" in k_lower:
-                v_str = str(v).strip().lower()
-                if "forage" in v_str: nature_ouvrage = "forage"
-                elif "puits" in v_str: nature_ouvrage = "puits"
-            elif "type de forage" in k_lower:
-                v_str = str(v).strip().lower()
-                if "public" in v_str or "administratif" in v_str: realisation_par = "public"
-                elif "prive" in v_str or "privé" in v_str: realisation_par = "prive"
+    type_alimentation = _infer_type_alimentation(nom_feuille)
+    nature_ouvrage, realisation_par = _infer_nature_et_realisation(
+        ligne.donnees_brutes
+    )
 
     return {
         "type": "Feature",
@@ -104,6 +151,7 @@ def _ligne_to_feature(
             "details": None,
         },
     }
+
 
 def _ouvrage_to_feature(
     o: Ouvrage,
@@ -141,6 +189,21 @@ def _ouvrage_to_feature(
 
 
 # =====================================================================
+# Helpers de filtres JSONB (mode Fichier)
+# =====================================================================
+def _contains_json_value(column_expr, value: str):
+    """Filtre 'donnees_brutes contient cette valeur textuelle'.
+
+    Note : utilise `::text` + contains → pas indexable via l'index GIN
+    JSONB. Acceptable pour le MVP (faible volumétrie). Pour une V2, passer
+    à `jsonb_path_exists` ou stocker des champs normalisés dédiés.
+    """
+    return func.lower(literal_column(f"{column_expr}::text")).contains(
+        f'"{value}"'
+    )
+
+
+# =====================================================================
 # MODE FICHIER / RUN / FEUILLE
 # =====================================================================
 def _build_feature_collection_fichier(
@@ -151,6 +214,10 @@ def _build_feature_collection_fichier(
     type_alimentation: str | None,
     nature_ouvrage: str | None,
     realisation_par: str | None,
+    localite: str | None,
+    region: str | None,
+    departement: str | None,
+    sous_prefecture: str | None,
     db: Session,
 ) -> dict[str, Any]:
     fichier = db.get(Fichier, id_fichier)
@@ -168,7 +235,11 @@ def _build_feature_collection_fichier(
         return {
             "type": "FeatureCollection",
             "features": [],
-            "meta": {"id_fichier": id_fichier, "nom_fichier": fichier.nom_fichier_original, "count": 0},
+            "meta": {
+                "id_fichier": id_fichier,
+                "nom_fichier": fichier.nom_fichier_original,
+                "count": 0,
+            },
         }
 
     feuilles_ids = [f.id_feuille for f in feuilles]
@@ -185,25 +256,73 @@ def _build_feature_collection_fichier(
         stmt = stmt.where(LigneIngeree.id_run == id_run)
     if statut_qualite is not None:
         stmt = stmt.where(LigneIngeree.statut_qualite == statut_qualite)
-    if type_alimentation is not None:
-        stmt = stmt.where(LigneIngeree.type_ouvrage_brut == type_alimentation)
 
-    # Filtre nature (on filtre sur les données brutes en JSONB)
+    # Filtre type_alimentation : on filtre sur le NOM DE FEUILLE (ce qui est
+    # utilisé pour déduire l'alimentation dans _ligne_to_feature).
+    # Avant : on filtrait sur type_ouvrage_brut — incohérent avec l'affichage.
+    if type_alimentation is not None:
+        matching_feuille_ids = [
+            f.id_feuille
+            for f in feuilles
+            if _infer_type_alimentation(f.nom_feuille) == type_alimentation
+        ]
+        if not matching_feuille_ids:
+            # Aucune feuille ne matche → résultat vide, pas la peine d'aller plus loin
+            return {
+                "type": "FeatureCollection",
+                "features": [],
+                "meta": {
+                    "id_fichier": id_fichier,
+                    "nom_fichier": fichier.nom_fichier_original,
+                    "count": 0,
+                },
+            }
+        stmt = stmt.where(LigneIngeree.id_feuille.in_(matching_feuille_ids))
+
+    # Filtres nature / réalisation : recherche textuelle dans donnees_brutes.
+    # Limitation connue : scan complet, faux positifs possibles. Documenté.
     if nature_ouvrage:
         if nature_ouvrage == "forage":
-            stmt = stmt.where(func.lower(literal_column("ligne_ingeree.donnees_brutes::text")).contains('"forage"'))
+            stmt = stmt.where(_contains_json_value("ligne_ingeree.donnees_brutes", "forage"))
         elif nature_ouvrage == "puits":
-            stmt = stmt.where(func.lower(literal_column("ligne_ingeree.donnees_brutes::text")).contains('"puits"'))
+            stmt = stmt.where(_contains_json_value("ligne_ingeree.donnees_brutes", "puits"))
 
-    # Filtre réalisation (on filtre sur les données brutes en JSONB)
     if realisation_par:
         if realisation_par == "public":
             stmt = stmt.where(
-                func.lower(literal_column("ligne_ingeree.donnees_brutes::text")).contains('"public"') |
-                func.lower(literal_column("ligne_ingeree.donnees_brutes::text")).contains('"administratif"')
+                or_(
+                    _contains_json_value("ligne_ingeree.donnees_brutes", "public"),
+                    _contains_json_value("ligne_ingeree.donnees_brutes", "administratif"),
+                )
             )
         elif realisation_par == "prive":
-            stmt = stmt.where(func.lower(literal_column("ligne_ingeree.donnees_brutes::text")).contains('"prive"'))
+            stmt = stmt.where(_contains_json_value("ligne_ingeree.donnees_brutes", "prive"))
+
+    # Filtres géographiques (par localité / région / département / sous-préfecture)
+    # Note : en mode Fichier, on filtre les lignes ingérées qui ont été
+    # rapprochées (id_localite rempli). Les lignes non rapprochées sont exclues
+    # dès qu'un filtre géo est actif — comportement attendu.
+    if localite or region or departement or sous_prefecture:
+        stmt = stmt.join(
+            Localite, Localite.id_localite == LigneIngeree.id_localite
+        )
+        rg_loc = aliased(RefGeoAdmin)
+        rg_sp = aliased(RefGeoAdmin)
+        rg_dep = aliased(RefGeoAdmin)
+        rg_reg = aliased(RefGeoAdmin)
+        stmt = stmt.join(rg_loc, Localite.id_geo == rg_loc.id_geo)
+        stmt = stmt.outerjoin(rg_sp, rg_loc.parent_id == rg_sp.id_geo)
+        stmt = stmt.outerjoin(rg_dep, rg_sp.parent_id == rg_dep.id_geo)
+        stmt = stmt.outerjoin(rg_reg, rg_dep.parent_id == rg_reg.id_geo)
+
+        if region:
+            stmt = stmt.where(rg_reg.nom == region)
+        if departement:
+            stmt = stmt.where(rg_dep.nom == departement)
+        if sous_prefecture:
+            stmt = stmt.where(rg_sp.nom == sous_prefecture)
+        if localite:
+            stmt = stmt.where(Localite.nom_usage.ilike(f"%{localite}%"))
 
     rows = db.execute(stmt).all()
     features = []
@@ -217,7 +336,11 @@ def _build_feature_collection_fichier(
     return {
         "type": "FeatureCollection",
         "features": features,
-        "meta": {"id_fichier": id_fichier, "nom_fichier": fichier.nom_fichier_original, "count": len(features)},
+        "meta": {
+            "id_fichier": id_fichier,
+            "nom_fichier": fichier.nom_fichier_original,
+            "count": len(features),
+        },
     }
 
 
@@ -228,7 +351,6 @@ def _build_feature_collection_tous(
     filters: OuvrageFilters,
     db: Session,
 ) -> dict[str, Any]:
-    # Chargement des ouvrages avec leurs relations
     stmt = (
         select(
             Ouvrage,
@@ -258,10 +380,10 @@ def _build_feature_collection_tous(
     if filters.region or filters.departement or filters.sous_prefecture or filters.localite:
         stmt = stmt.join(Ouvrage.localite)
 
-        rg_loc = aliased(RefGeoAdmin) # Niveau localité
-        rg_sp = aliased(RefGeoAdmin)  # Niveau sous-prefecture
-        rg_dep = aliased(RefGeoAdmin) # Niveau departement
-        rg_reg = aliased(RefGeoAdmin) # Niveau region
+        rg_loc = aliased(RefGeoAdmin)
+        rg_sp = aliased(RefGeoAdmin)
+        rg_dep = aliased(RefGeoAdmin)
+        rg_reg = aliased(RefGeoAdmin)
 
         stmt = stmt.join(rg_loc, Localite.id_geo == rg_loc.id_geo)
         stmt = stmt.outerjoin(rg_sp, rg_loc.parent_id == rg_sp.id_geo)
@@ -274,13 +396,18 @@ def _build_feature_collection_tous(
             stmt = stmt.where(rg_dep.nom == filters.departement)
         if filters.sous_prefecture:
             stmt = stmt.where(rg_sp.nom == filters.sous_prefecture)
-
         if filters.localite:
             stmt = stmt.where(Localite.nom_usage.ilike(f"%{filters.localite}%"))
 
-    # Filtre bailleur (via ouvrage_projet -> projet_financement -> source)
+    # Filtre bailleur : inner join volontaire — si on filtre par bailleur,
+    # on ne veut que les ouvrages effectivement financés par lui.
     if getattr(filters, "bailleur", None):
-        stmt = stmt.join(OuvrageProjet).join(ProjetFinancement).join(Source).where(Source.nom == filters.bailleur)
+        stmt = (
+            stmt.join(OuvrageProjet)
+            .join(ProjetFinancement)
+            .join(Source)
+            .where(Source.nom == filters.bailleur)
+        )
 
     rows = db.execute(stmt).all()
     features = []
@@ -319,6 +446,10 @@ def points_fichier(
     type_alimentation: str | None = Query(None),
     nature_ouvrage: str | None = Query(None),
     realisation_par: str | None = Query(None),
+    localite: str | None = Query(None),
+    region: str | None = Query(None),
+    departement: str | None = Query(None),
+    sous_prefecture: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     return _build_feature_collection_fichier(
@@ -329,6 +460,10 @@ def points_fichier(
         type_alimentation=type_alimentation,
         nature_ouvrage=nature_ouvrage,
         realisation_par=realisation_par,
+        localite=localite,
+        region=region,
+        departement=departement,
+        sous_prefecture=sous_prefecture,
         db=db,
     )
 
@@ -358,6 +493,13 @@ def telecharger_geojson_fichier(
         "ok", "localite_non_resolue", "geom_invalide",
         "type_ouvrage_inconnu", "rejete", "doublon_suspect",
     ] | None = Query(None),
+    type_alimentation: str | None = Query(None),
+    nature_ouvrage: str | None = Query(None),
+    realisation_par: str | None = Query(None),
+    localite: str | None = Query(None),
+    region: str | None = Query(None),
+    departement: str | None = Query(None),
+    sous_prefecture: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     data = _build_feature_collection_fichier(
@@ -365,14 +507,20 @@ def telecharger_geojson_fichier(
         id_feuille=id_feuille,
         id_run=id_run,
         statut_qualite=statut_qualite,
-        type_alimentation=None,
-        nature_ouvrage=None,
-        realisation_par=None,
+        type_alimentation=type_alimentation,
+        nature_ouvrage=nature_ouvrage,
+        realisation_par=realisation_par,
+        localite=localite,
+        region=region,
+        departement=departement,
+        sous_prefecture=sous_prefecture,
         db=db,
     )
     payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
     return Response(
         content=payload,
         media_type="application/geo+json",
-        headers={"Content-Disposition": f'attachment; filename="fichier_{id_fichier}.geojson"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="fichier_{id_fichier}.geojson"'
+        },
     )

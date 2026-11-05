@@ -84,3 +84,45 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
         re.compile(r"^organe\s*gestion$", re.I),
     ],
 }
+# =====================================================================
+# Indicateurs sanitaires (qualité de l'eau / maladies hydriques)
+# =====================================================================
+# Ces patterns sont utilisés à la consolidation pour ventiler les valeurs
+# brutes (donnees_brutes) dans ouvrage.qualite_eau.
+#
+# Pour ajouter un indicateur : ajouter une entrée `code_canonique: [patterns]`.
+# Le code canonique devient la clé dans le JSON. `brut_<entete>` est ajouté
+# systématiquement en plus, pour garder la donnée d'origine.
+INDICATEURS_SANITAIRES: dict[str, list[re.Pattern]] = {
+    "onchocercose": [
+        re.compile(r"onchocercose", re.I),
+        re.compile(r"c[ée]cit[ée]\s*de\s*rivi[èe]re", re.I),
+    ],
+    "vers_de_guinee": [
+        re.compile(r"vers\s*de\s*guin[ée]e", re.I),
+        re.compile(r"dracunculose", re.I),
+        re.compile(r"guin[ée]e\s*worm", re.I),
+    ],
+    "eau_salee": [
+        re.compile(r"eau\s*sal[ée]e", re.I),
+        re.compile(r"salinit[ée]", re.I),
+    ],
+    "qualite_eau": [
+        re.compile(r"qualit[ée]\s*de\s*l['e]?\s*eau", re.I),
+        re.compile(r"qualit[ée]\s*eau", re.I),
+    ],
+}
+
+
+# Mots-clés "génériques" : si une colonne contient un de ces mots mais ne
+# matche aucun indicateur précis ci-dessus, on la range quand même dans
+# qualite_eau sous `brut_<entete>` (pour ne pas perdre l'info).
+SANITAIRE_MOTS_CLES: list[re.Pattern] = [
+    re.compile(r"onchocercose", re.I),
+    re.compile(r"guin[ée]e", re.I),
+    re.compile(r"sal[ée]e", re.I),
+    re.compile(r"maladie", re.I),
+    re.compile(r"sant[ée]", re.I),
+    re.compile(r"qualit[ée]\s*(de\s*)?l?['e]?\s*eau", re.I),
+    re.compile(r"hydrique", re.I),
+]
