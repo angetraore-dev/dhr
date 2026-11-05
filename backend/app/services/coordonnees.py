@@ -122,26 +122,35 @@ def parser_coordonnees(
     lat_brut: Any,
     lon_brut: Any,
 ) -> tuple[float | None, float | None]:
-    """
-    Parse un couple (lat, lon).
-    Détecte automatiquement si l'ordre est inversé (lat/lon vs lon/lat)
-    en se basant sur les bornes WGS84 et la position de la Côte d'Ivoire.
+    """Parse un couple (lat, lon), corrige les inversions et signes.
+
+    Côte d'Ivoire : lat ∈ [4, 11], lon ∈ [-9, -2].
     """
     lat = parser_une_coordonnee(lat_brut, est_latitude=True)
     lon = parser_une_coordonnee(lon_brut, est_latitude=False)
 
-    # Cas normal : lat valide, lon valide
     if lat is not None and lon is not None:
-        # Détection d'inversion : en Côte d'Ivoire, lat ∈ [4, 11], lon ∈ [-9, -2]
-        # Si lat < 0 et lon > 0, c'est probablement inversé
-        if lat < 0 and lon > 0:
-            lat, lon = lon, lat
+        lat, lon = _corriger_ci(lat, lon)
         return lat, lon
 
-    # Cas inverse : essayer lon/lat
+    # Fallback : inversion à la source
     lat2 = parser_une_coordonnee(lon_brut, est_latitude=True)
     lon2 = parser_une_coordonnee(lat_brut, est_latitude=False)
     if lat2 is not None and lon2 is not None:
+        lat2, lon2 = _corriger_ci(lat2, lon2)
         return lat2, lon2
 
     return None, None
+
+
+def _corriger_ci(lat: float, lon: float) -> tuple[float, float]:
+    """Corrige les inversions et signes pour la Côte d'Ivoire."""
+    # Inversion : (lon, lat) serait un point CI valide ?
+    if 4.0 <= lon <= 11.0 and -9.0 <= lat <= -2.0:
+        lat, lon = lon, lat
+
+    # Inversion de signe : les deux positifs, lon devrait être négatif
+    if lat > 0 and lon > 0 and 2.0 < lon < 9.0:
+        lon = -lon
+
+    return lat, lon

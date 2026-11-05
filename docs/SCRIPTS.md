@@ -321,7 +321,7 @@ docker compose exec backend python -u /app/scripts/consolidation.py 1 2>&1 | Sel
 docker compose exec db psql -U dhr -d dhr -c "SELECT COUNT(*) FROM ouvrage;"
 # Attendu : ~3511
 
-docker compose exec db psql -U dhr -d dhr -c "SELECT t.code, COUNT(*) FROM ouvrage o JOIN type_ouvrage t ON t.id_type_ouvrage = o.id_type_ouvrage GROUP BY t.code ORDER BY COUNT(*) DESC;"
+docker compose exec db psql -U dhr -d dhr -c "SELECT t.code, COUNT(*) FROM ouvrage o JOIN nature_ouvrage t ON t.id_type_ouvrage = o.id_type_ouvrage GROUP BY t.code ORDER BY COUNT(*) DESC;"
 # Attendu :
 #   PMH   : ~2103
 #   HVA   : ~86

@@ -72,8 +72,19 @@ def _map_nature(type_brut: str | None) -> str:
     return "inconnu"
 
 
-def _map_alimentation(type_brut: str | None, nom_feuille: str) -> str:
-    """Détermine l'alimentation (PMH, HVA, PEA, HV, AUTRE). Priorité au nom de feuille."""
+def _map_alimentation(
+    type_brut: str | None,
+    nom_feuille: str,
+    donnees_brutes: dict[str, Any] | None = None,
+) -> str:
+    """Détermine l'alimentation (PMH, HVA, PEA, HV, AUTRE).
+
+    Priorité :
+    1. Nom de feuille (PMH/HVA/PEA/HV)
+    2. type_ouvrage_brut
+    3. Colonnes "usage" dans donnees_brutes (ex. "Usage_Ouvrage" = "Hydraulique villageoise")
+    """
+    # 1. Nom de feuille (le plus fiable)
     nom_upper = (nom_feuille or "").upper()
     if "PMH" in nom_upper:
         return "PMH"
@@ -84,21 +95,37 @@ def _map_alimentation(type_brut: str | None, nom_feuille: str) -> str:
     if "HV" in nom_upper:
         return "HV"
 
-    # Fallback sur le type brut
+    # 2. type_ouvrage_brut
     norm = _normaliser(type_brut)
     if "pmh" in norm or "motricite" in norm or "pompe" in norm:
         return "PMH"
-    if "hva" in norm or "amelioree" in norm:  # villageoise
+    if "hva" in norm or "amelioree" in norm:
         return "HVA"
-    # PEA testé AVANT HV (sinon "villageoise" matcherait PEA si son libellé
-    # contenait le mot, ce qui n'est pas le cas aujourd'hui mais fragile).
     if "pea" in norm or "autonome" in norm:
         return "PEA"
     if "hv" in norm or "villageoise" in norm:
         return "HV"
 
-    return "AUTRE"
+    # 3. Colonnes "usage" dans donnees_brutes
+    if donnees_brutes:
+        for k, v in donnees_brutes.items():
+            if not k or v is None:
+                continue
+            k_norm = _normaliser(k)
+            # On ne regarde que les colonnes qui parlent d'usage/type
+            if not any(w in k_norm for w in ("usage", "type ouvrage", "type d ouvrage", "alimentation")):
+                continue
+            v_norm = _normaliser(str(v))
+            if "pmh" in v_norm or "motricite" in v_norm or "pompe" in v_norm:
+                return "PMH"
+            if "hva" in v_norm or "amelioree" in v_norm:
+                return "HVA"
+            if "pea" in v_norm or "autonome" in v_norm:
+                return "PEA"
+            if "hv" in v_norm or "villageoise" in v_norm:
+                return "HV"
 
+    return "AUTRE"
 
 def _map_realisation(
     donnees_brutes: dict[str, Any] | None,
@@ -296,7 +323,11 @@ def _consolider_ligne(
 
     # Mappings
     nature = _map_nature(ligne.type_ouvrage_brut)
-    alimentation = _map_alimentation(ligne.type_ouvrage_brut, nom_feuille)
+    alimentation = _map_alimentation(
+        ligne.type_ouvrage_brut,
+        nom_feuille,
+        donnees_brutes=ligne.donnees_brutes,
+    )
     realisation = _map_realisation(
         ligne.donnees_brutes,
         type_ouvrage_brut=ligne.type_ouvrage_brut,
