@@ -6,6 +6,14 @@ Service d'export Excel/CSV streamé.
 - Colonne N° incrémentale
 - Feuille Synthèse avec KPI (optionnelle, XlsxWriter gère le merge)
 - Limite MAX_EXPORT_ROWS (413 au-delà)
+
+Aligné sur la Bible § 4.3.4 et § 5.4.4 :
+- Pas de `type_ouvrage` legacy.
+- 3 champs distincts : nature_ouvrage, type_alimentation, realisation_par.
+- Filtres : region, departement, sous_prefecture, annee_min, annee_max,
+  nature_ouvrage, type_alimentation, realisation_par, etat.
+- Pas de filtre `district` (réforme territoriale).
+- KPI `par_district` conservé dans la Synthèse (information utile DHR).
 """
 from __future__ import annotations
 
@@ -37,9 +45,9 @@ settings = get_settings()
 # =====================================================================
 # Colonnes standard
 # =====================================================================
+# Ordre : identifiants, contexte géo, attributs métier, localisation, financements.
 STANDARD_COLUMNS: list[tuple[str, str]] = [
     ("n", "N°"),
-    ("district", "District"),
     ("region", "Région"),
     ("departement", "Département"),
     ("sous_prefecture", "Sous-préfecture"),
@@ -47,7 +55,7 @@ STANDARD_COLUMNS: list[tuple[str, str]] = [
     ("id_ouvrage", "ID ouvrage"),
     ("code_ouvrage", "Code ouvrage"),
     ("nature_ouvrage", "Nature (Puits/Forage)"),
-    ("type_alimentation", "Alimentation (PMH/HVA/PEA)"),
+    ("type_alimentation", "Alimentation (PMH/HVA/PEA/HV)"),
     ("realisation_par", "Réalisation (Public/Privé)"),
     ("etat", "État"),
     ("annee_realisation", "Année de réalisation"),
@@ -63,6 +71,7 @@ STANDARD_COLUMNS: list[tuple[str, str]] = [
 # Helpers
 # =====================================================================
 def _get_ref_geo_chain(db: Session, id_localite: int) -> dict[str, str]:
+    """Remonte la hiérarchie administrative depuis une localité."""
     localite = db.get(Localite, id_localite)
     if localite is None:
         return {}
@@ -99,6 +108,7 @@ def _build_row(
     include_metadata: bool,
     index: int,
 ) -> dict[str, Any]:
+    """Construit une ligne d'export à partir d'un ouvrage."""
     ref_geo = _get_ref_geo_chain(db, o.id_localite)
     cgpe_existe = ""
     cgpe_statut = ""
@@ -109,13 +119,13 @@ def _build_row(
 
     row = {
         "n": index,
-        "district": ref_geo.get("district", ""),
         "region": ref_geo.get("region", ""),
         "departement": ref_geo.get("departement", ""),
         "sous_prefecture": ref_geo.get("sous_prefecture", ""),
         "localite": o.localite.nom_usage if o.localite else "",
         "id_ouvrage": o.id_ouvrage,
         "code_ouvrage": o.code_ouvrage or "",
+        # 3 champs sémantiques (remplace type_ouvrage)
         "nature_ouvrage": o.nature_ouvrage or "",
         "type_alimentation": o.type_alimentation or "",
         "realisation_par": o.realisation_par or "",
@@ -134,18 +144,19 @@ def _build_row(
 
 
 # =====================================================================
-# Filtres communs (factorisation — garantit la cohérence KPI / export)
+# Filtres communs
 # =====================================================================
 def _apply_common_filters(stmt, filters: dict[str, Any]):
     """Applique les filtres métier + année communs à toutes les requêtes.
 
     Ne gère PAS les filtres géographiques (region/departement/...) :
-    ces derniers ne sont pas utilisés dans export.py aujourd'hui.
+    ces derniers ne sont pas utilisés dans export.py aujourd'hui (le filtrage
+    géo se fait côté UI sur les points consolidés, pas sur l'export).
     """
-    if filters.get("type_alimentation"):
-        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
     if filters.get("nature_ouvrage"):
         stmt = stmt.where(Ouvrage.nature_ouvrage == filters["nature_ouvrage"])
+    if filters.get("type_alimentation"):
+        stmt = stmt.where(Ouvrage.type_alimentation == filters["type_alimentation"])
     if filters.get("realisation_par"):
         stmt = stmt.where(Ouvrage.realisation_par == filters["realisation_par"])
     if filters.get("etat"):
@@ -213,23 +224,23 @@ def _filename(extension: str) -> str:
 
 
 # =====================================================================
-# KPI
+# KPI (Synthèse)
 # =====================================================================
 def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     kpis: dict[str, Any] = {}
     kpis["total"] = _count_ouvrages(db, filters)
 
-    # --- Par type d'alimentation ---
-    stmt = select(Ouvrage.type_alimentation, func.count()).select_from(Ouvrage)
-    stmt = _apply_common_filters(stmt, filters)
-    stmt = stmt.group_by(Ouvrage.type_alimentation).order_by(func.count().desc())
-    kpis["par_type_alimentation"] = dict(db.execute(stmt).all())
-
-    # --- Par nature ---
+    # --- Par nature (remplace par_type_ouvrage) ---
     stmt = select(Ouvrage.nature_ouvrage, func.count()).select_from(Ouvrage)
     stmt = _apply_common_filters(stmt, filters)
     stmt = stmt.group_by(Ouvrage.nature_ouvrage).order_by(func.count().desc())
     kpis["par_nature"] = dict(db.execute(stmt).all())
+
+    # --- Par alimentation ---
+    stmt = select(Ouvrage.type_alimentation, func.count()).select_from(Ouvrage)
+    stmt = _apply_common_filters(stmt, filters)
+    stmt = stmt.group_by(Ouvrage.type_alimentation).order_by(func.count().desc())
+    kpis["par_alimentation"] = dict(db.execute(stmt).all())
 
     # --- Par réalisation ---
     stmt = select(Ouvrage.realisation_par, func.count()).select_from(Ouvrage)
@@ -257,10 +268,7 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     )
     kpis["par_bailleur"] = dict(db.execute(stmt).all())
 
-    # --- Par district (CTE récursive, filtrée) ---
-    # On injecte dynamiquement les filtres dans le WHERE du CTE final.
-    # Les valeurs viennent de OuvrageFilters (Pydantic) : str | int | None.
-    # On utilise des paramètres liés pour éviter toute injection.
+    # --- Par district (KPI conservé, pas un filtre UI) ---
     district_of_sql = """
         WITH RECURSIVE district_of AS (
             SELECT id_geo, id_geo AS district_id
@@ -283,12 +291,12 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
 
     where_clauses: list[str] = []
     params: dict[str, Any] = {}
-    if filters.get("type_alimentation"):
-        where_clauses.append("AND o.type_alimentation = :type_alimentation")
-        params["type_alimentation"] = filters["type_alimentation"]
     if filters.get("nature_ouvrage"):
         where_clauses.append("AND o.nature_ouvrage = :nature_ouvrage")
         params["nature_ouvrage"] = filters["nature_ouvrage"]
+    if filters.get("type_alimentation"):
+        where_clauses.append("AND o.type_alimentation = :type_alimentation")
+        params["type_alimentation"] = filters["type_alimentation"]
     if filters.get("realisation_par"):
         where_clauses.append("AND o.realisation_par = :realisation_par")
         params["realisation_par"] = filters["realisation_par"]
@@ -319,8 +327,6 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     kpis["annee_moy"] = round(row[2], 1) if row and row[2] is not None else None
 
     # --- Géolocalisation ---
-    # Attention : on référence la colonne générée `geom` en SQL brut.
-    # La table s'appelle `ouvrage` (minuscule en DB) : on écrit `geom` sans préfixe.
     stmt = (
         select(
             func.count().filter(text("geom IS NOT NULL")),
@@ -344,9 +350,6 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
         )
         .select_from(CGPE)
     )
-    # Les filtres métier portent sur Ouvrage : jointure obligatoire dès qu'un
-    # filtre est actif, sinon le COUNT(CGPE) est global (comportement voulu
-    # quand aucun filtre n'est appliqué).
     needs_join = any(
         filters.get(k) is not None
         for k in (
@@ -376,8 +379,8 @@ def _format_filters(filters: dict[str, Any]) -> str:
     if not filters or all(v is None for v in filters.values()):
         return "Aucun filtre (tous les ouvrages)"
     labels = {
-        "type_alimentation": "Alimentation",
         "nature_ouvrage": "Nature",
+        "type_alimentation": "Alimentation",
         "realisation_par": "Réalisation",
         "etat": "État",
         "region": "Région",
@@ -426,6 +429,7 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
     ws.write(row, 0, f"Filtres : {_format_filters(kpis['filtres'])}", fmt_label)
     row += 2
 
+    # Vue d'ensemble
     ws.merge_range(row, 0, row, 3, "Vue d'ensemble", fmt_section)
     row += 1
     overview = [
@@ -433,24 +437,14 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
         ("Année min", kpis["annee_min"] if kpis["annee_min"] is not None else "—"),
         ("Année max", kpis["annee_max"] if kpis["annee_max"] is not None else "—"),
         ("Année moyenne", kpis["annee_moy"] if kpis["annee_moy"] is not None else "—"),
-        ("Taux de géolocalisation", f"{kpis['taux_geo']*100:.1f} % ({kpis['geo_avec']}/{kpis['geo_total']})"),
-        ("Taux de CGPE fonctionnel", f"{kpis['taux_cgpe']*100:.1f} % ({kpis['cgpe_fonctionnel']}/{kpis['cgpe_total']})"),
+        ("Taux de géolocalisation",
+         f"{kpis['taux_geo']*100:.1f} % ({kpis['geo_avec']}/{kpis['geo_total']})"),
+        ("Taux de CGPE fonctionnel",
+         f"{kpis['taux_cgpe']*100:.1f} % ({kpis['cgpe_fonctionnel']}/{kpis['cgpe_total']})"),
     ]
     for label, value in overview:
         ws.write(row, 0, label, fmt_label)
         ws.write(row, 1, value, fmt_value)
-        row += 1
-    row += 1
-
-    # Par alimentation
-    ws.merge_range(row, 0, row, 1, "Répartition par alimentation", fmt_section)
-    row += 1
-    ws.write(row, 0, "Alimentation", fmt_header)
-    ws.write(row, 1, "Nombre", fmt_header)
-    row += 1
-    for code, count in kpis["par_type_alimentation"].items():
-        ws.write(row, 0, code or "Inconnu", fmt_label)
-        ws.write(row, 1, count, fmt_label)
         row += 1
     row += 1
 
@@ -462,6 +456,18 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
     row += 1
     for nature, count in kpis["par_nature"].items():
         ws.write(row, 0, nature or "Inconnu", fmt_label)
+        ws.write(row, 1, count, fmt_label)
+        row += 1
+    row += 1
+
+    # Par alimentation
+    ws.merge_range(row, 0, row, 1, "Répartition par alimentation", fmt_section)
+    row += 1
+    ws.write(row, 0, "Alimentation", fmt_header)
+    ws.write(row, 1, "Nombre", fmt_header)
+    row += 1
+    for code, count in kpis["par_alimentation"].items():
+        ws.write(row, 0, code or "Inconnu", fmt_label)
         ws.write(row, 1, count, fmt_label)
         row += 1
     row += 1
@@ -503,7 +509,7 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
             row += 1
         row += 1
 
-    # Par district
+    # Par district (KPI conservé)
     if kpis["par_district"]:
         ws.merge_range(row, 0, row, 1, "Répartition par district", fmt_section)
         row += 1
@@ -532,9 +538,7 @@ def export_ouvrages_xlsx(
 
     metadata_columns: list[str] = []
     if include_metadata:
-        sample = db.scalars(
-            select(Ouvrage).limit(100)
-        ).all()
+        sample = db.scalars(select(Ouvrage).limit(100)).all()
         cols: set[str] = set()
         for o in sample:
             if o.metadata_:
@@ -588,9 +592,7 @@ def export_ouvrages_csv(
 
     metadata_columns: list[str] = []
     if include_metadata:
-        sample = db.scalars(
-            select(Ouvrage).limit(100)
-        ).all()
+        sample = db.scalars(select(Ouvrage).limit(100)).all()
         cols: set[str] = set()
         for o in sample:
             if o.metadata_:

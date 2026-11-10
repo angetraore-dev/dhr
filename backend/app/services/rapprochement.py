@@ -7,6 +7,10 @@ Pour chaque ligne_ingeree avec statut_qualite='ok' et id_localite NULL :
 3. Sinon, cherche dans localite_alias
 4. Sinon, utilise pg_trgm (similarity > seuil)
 5. Met à jour id_localite et statut_qualite
+
+IMPORTANT (Bible § 3.2.2, décision A2) :
+- `message_qualite` a un format STRICT, sans suffixe debug :
+  "Localité non résolue : <localite_brute>"
 """
 from __future__ import annotations
 
@@ -15,10 +19,10 @@ import re
 import unicodedata
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.models import Localite, LocaliteAlias, LigneIngeree
+from app.models import Localite, LigneIngeree
 
 logger = logging.getLogger("dhr.rapprochement")
 
@@ -47,16 +51,14 @@ def _resoudre_localite(
 ) -> tuple[int | None, str]:
     """
     Résout une localité brute en id_localite.
-    Retourne (id_localite, methode) où methode ∈ {'exact', 'alias', 'trigram', 'non_resolu'}.
+    Retourne (id_localite, methode) où methode ∈ {'exact', 'alias', 'trigram', 'non_resolu', 'vide'}.
     """
     if not localite_brute:
         return None, "vide"
 
     nom_norm = _normaliser(localite_brute)
-    sous_pref_norm = _normaliser(sous_prefecture_brute) if sous_prefecture_brute else None
 
     # 1. Exact match sur nom_usage (via normalisation SQL)
-    # On utilise unaccent + lower + regexp_replace
     exact_query = text("""
         SELECT id_localite
         FROM localite
@@ -137,9 +139,11 @@ def rapprocher_lignes_run(
             ligne.id_localite = id_localite
             stats[methode] += 1
         else:
-            # Marque comme non résolue
+            # I3 : format STRICT, sans suffixe debug (décision A2)
             ligne.statut_qualite = "localite_non_resolue"
-            ligne.message_qualite = f"Localité non résolue : {ligne.localite_brute!r} (méthode: {methode})"
+            ligne.message_qualite = (
+                f"Localité non résolue : {ligne.localite_brute!r}"
+            )
             stats[methode] += 1
 
     db.flush()

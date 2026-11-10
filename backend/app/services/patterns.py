@@ -12,6 +12,9 @@ from __future__ import annotations
 import re
 
 
+# Champs cibles standard (mappables depuis une colonne Excel).
+# Aligné sur la Bible § 2.3.4 et § 3.2.1.
+# L'ordre des clés n'a pas d'importance, mais le premier match gagne.
 COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
     # --- Contexte administratif ---
     "region_brute": [
@@ -51,14 +54,21 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
         re.compile(r"^lon(g)?$", re.I),
         re.compile(r"^x$", re.I),
     ],
-    # --- Ouvrage ---
-    "nature_ouvrage_brut": [
+    # --- Attributs métier bruts (P12) ---
+    # type_ouvrage_brut : colonne qui porte la nature / le type d'ouvrage
+    # (ex. "Forage ADM", "Sondage", "PMH"...). Interprétée à la consolidation
+    # par _map_nature, _map_alimentation, _map_realisation.
+    "type_ouvrage_brut": [
         re.compile(r"^type[_\s]ouvrage$", re.I),
         re.compile(r"^type[_\s]de[_\s]forage$", re.I),
         re.compile(r"q3\.1\.\d+[a-z]?\.\s*type\s*d.?ouvrage", re.I),
     ],
-    "type_alimentation_brut": [
+    # usage_ouvrage_brut : colonne qui porte l'usage / le mode d'alimentation
+    # (ex. "Hydraulique villageoise", "Point d'eau autonome"...).
+    # Priorité 3 dans _map_alimentation (après nom de feuille et type_ouvrage_brut).
+    "usage_ouvrage_brut": [
         re.compile(r"^usage[_\s]ouvrage$", re.I),
+        re.compile(r"^usage$", re.I),
         re.compile(r"^type[_\s]alimentation", re.I),
         re.compile(r"^alimentation", re.I),
     ],
@@ -89,6 +99,8 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
         re.compile(r"^organe\s*gestion$", re.I),
     ],
 }
+
+
 # =====================================================================
 # Indicateurs sanitaires (qualité de l'eau / maladies hydriques)
 # =====================================================================

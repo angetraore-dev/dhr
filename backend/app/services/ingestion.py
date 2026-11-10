@@ -10,6 +10,14 @@ Service d'ingestion : parsing des fichiers Excel multi-feuilles.
 6. ingerer_fichier()        → orchestre sur toutes les feuilles
 
 Modes : complet / echantillon / plage
+
+IMPORTANT (Bible § 3.2.1) :
+- L'ingestion NE met PAS à jour `fichier.statut` (c'est `run.py` qui le fait
+  en fin de pipeline, cf. décision A3).
+- Les lignes de total/sous-total sont détectées (mots-clés) et NE sont PAS
+  stockées (statut `rejete`). Elles sont comptées dans `fichier.nb_lignes_total`
+  via `nb_lignes_stockees + nb_lignes_rejetees` (cf. décision C4).
+- Les lignes entièrement vides sont ignorées (ni stockées, ni comptées).
 """
 from __future__ import annotations
 
@@ -31,12 +39,6 @@ from app.services.coordonnees import parser_coordonnees
 from app.services.patterns import COLUMN_PATTERNS
 
 logger = logging.getLogger("dhr.ingestion")
-
-
-# =====================================================================
-# Patterns regex pour la détection des colonnes
-# =====================================================================
-
 
 
 # =====================================================================
@@ -82,12 +84,14 @@ def _to_bool(val: Any) -> bool | None:
         return False
     return None
 
+
 def _to_float(s: str) -> float | None:
     """Convertit une chaîne en float, gère la virgule. Retourne None si invalide."""
     try:
         return float(s.replace(",", ".").strip())
     except (ValueError, AttributeError):
         return None
+
 
 def _serialiser_valeur(val: Any) -> Any:
     from datetime import date, datetime, time
@@ -97,8 +101,38 @@ def _serialiser_valeur(val: Any) -> Any:
         return val.isoformat()
     if isinstance(val, (int, float, str, bool)):
         return val
-    # Fallback : str
     return str(val)
+
+
+# =====================================================================
+# Détection des rejets (B5)
+# =====================================================================
+# Mots-clés (insensible casse/accents) qui signalent une ligne de total
+# ou sous-total. Ces lignes ne sont PAS stockées (statut `rejete`).
+REJET_MOTS_CLES: tuple[str, ...] = ("total", "sous-total", "somme", "cumul")
+
+
+def _est_ligne_rejetee(row: tuple[Any, ...]) -> bool:
+    """
+    Retourne True si la ligne contient un mot-clé de rejet (total, sous-total...).
+    La détection se fait sur les cellules texte uniquement.
+    """
+    for val in row:
+        if val is None:
+            continue
+        s = _normaliser(str(val))
+        if not s:
+            continue
+        for mot in REJET_MOTS_CLES:
+            if mot in s:
+                return True
+    return False
+
+
+def _est_ligne_vide(row: tuple[Any, ...]) -> bool:
+    """Retourne True si toutes les cellules sont None ou ''."""
+    return all(v is None or str(v).strip() == "" for v in row)
+
 
 # =====================================================================
 # 1. Détection des feuilles
@@ -128,29 +162,25 @@ def _detecter_header_row(ws, max_scan: int = 30) -> int:
         row = list(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True))[0]
         non_vides = [str(v).strip() for v in row if v is not None and str(v).strip() != ""]
 
-        # Ignore les lignes vides ou avec trop peu de cellules
         if len(non_vides) < 5:
             continue
-
-        # Ignore les séparateurs (tirets/underscores/égal)
         if all(re.fullmatch(r"[-_=*]+", v) for v in non_vides):
             continue
 
-        # Score = nombre de colonnes uniques
         uniques = len(set(non_vides))
-        score = uniques
-
-        if score > best_score:
-            best_score = score
+        if uniques > best_score:
+            best_score = uniques
             best_row = row_idx
-
-        # Si on a une ligne avec >= 10 colonnes uniques, on s'arrête
         if uniques >= 10:
             return row_idx
 
     return best_row
 
-def detecter_feuilles(chemin: str | Path, header_row_force: int | None = None) -> list[FeuilleInfo]:
+
+def detecter_feuilles(
+    chemin: str | Path,
+    header_row_force: int | None = None,
+) -> list[FeuilleInfo]:
     """Ouvre un fichier Excel et liste ses feuilles."""
     try:
         wb = openpyxl.load_workbook(chemin, read_only=True, data_only=True)
@@ -170,7 +200,9 @@ def detecter_feuilles(chemin: str | Path, header_row_force: int | None = None) -
 
             entetes: list[str] = []
             if nb_lignes_total >= header_row:
-                for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row, values_only=False)):
+                for cell in next(
+                    ws.iter_rows(min_row=header_row, max_row=header_row, values_only=False)
+                ):
                     entetes.append(str(cell.value) if cell.value is not None else "")
 
             feuilles.append(FeuilleInfo(
@@ -198,8 +230,14 @@ class MappingFeuille:
     entetes: list[str] = field(default_factory=list)
 
 
-def _analyser_entetes(entetes: list[str], index_feuille: int, header_row: int) -> MappingFeuille:
-    mapping = MappingFeuille(index_feuille=index_feuille, header_row=header_row, entetes=entetes)
+def _analyser_entetes(
+    entetes: list[str],
+    index_feuille: int,
+    header_row: int,
+) -> MappingFeuille:
+    mapping = MappingFeuille(
+        index_feuille=index_feuille, header_row=header_row, entetes=entetes
+    )
     champs_deja_mappes: set[str] = set()
 
     for col_idx, entete in enumerate(entetes):
@@ -236,9 +274,17 @@ def _extraire_lignes(
     limite_lignes: int | None,
     ligne_debut: int | None,
     ligne_fin: int | None,
-) -> list[dict[str, Any]]:
-    """Parcourt les lignes et normalise. Itération unique (optimisé read_only)."""
+) -> tuple[list[dict[str, Any]], int]:
+    """
+    Parcourt les lignes et normalise. Itération unique (optimisé read_only).
+
+    Retourne (lignes_extraites, nb_rejetees).
+    - Les lignes de total/sous-total ne sont PAS incluses dans `lignes_extraites`
+      (elles sont comptées dans `nb_rejetees`).
+    - Les lignes vides sont ignorées (ni dans lignes_extraites, ni dans nb_rejetees).
+    """
     lignes: list[dict[str, Any]] = []
+    nb_rejetees = 0
 
     start = mapping.header_row + 1
     end = None
@@ -253,7 +299,6 @@ def _extraire_lignes(
     else:
         raise HTTPException(status_code=400, detail=f"Mode invalide : {mode}")
 
-    # Itération UNIQUE sur toutes les lignes (optimisé read_only)
     for row_idx, row in enumerate(
         ws.iter_rows(min_row=1, max_row=ws.max_row, values_only=True),
         start=1,
@@ -263,18 +308,27 @@ def _extraire_lignes(
         if end is not None and row_idx > end:
             break
 
-        # Ignore les lignes vides
-        if all(v is None or str(v).strip() == "" for v in row):
+        # Ignorer les lignes entièrement vides
+        if _est_ligne_vide(row):
+            continue
+
+        # Détection des rejets (B5)
+        if _est_ligne_rejetee(row):
+            nb_rejetees += 1
             continue
 
         record: dict[str, Any] = {"num_ligne_source": row_idx}
 
         for col_idx, champ in mapping.colonnes_mappees.items():
             if col_idx < len(row):
-               val = row[col_idx]
-               if val is not None and str(val).strip() != "":
-                   if champ not in record or record[champ] is None or str(record[champ]).strip() == "":
-                      record[champ] = val
+                val = row[col_idx]
+                if val is not None and str(val).strip() != "":
+                    if (
+                        champ not in record
+                        or record[champ] is None
+                        or str(record[champ]).strip() == ""
+                    ):
+                        record[champ] = val
 
         # Conversion coordonnées
         lat_brut = record.get("latitude_decimal")
@@ -286,13 +340,17 @@ def _extraire_lignes(
         # Données brutes
         brut: dict[str, Any] = {}
         for col_idx, val in enumerate(row):
-            if col_idx < len(mapping.entetes) and val is not None and mapping.entetes[col_idx]:
+            if (
+                col_idx < len(mapping.entetes)
+                and val is not None
+                and mapping.entetes[col_idx]
+            ):
                 brut[mapping.entetes[col_idx]] = _serialiser_valeur(val)
         record["donnees_brutes"] = brut
 
         lignes.append(record)
 
-    return lignes
+    return lignes, nb_rejetees
 
 
 # =====================================================================
@@ -308,8 +366,12 @@ def ingerer_feuille(
     ligne_fin: int | None,
     chemin_fichier: str,
     header_row_force: int | None = None,
-) -> int:
-    """Ingère une feuille dans ligne_ingeree."""
+) -> dict[str, int]:
+    """
+    Ingère une feuille dans ligne_ingeree.
+
+    Retourne {'nb_stockees': int, 'nb_rejetees': int}.
+    """
     if not Path(chemin_fichier).exists():
         raise HTTPException(
             status_code=404,
@@ -325,13 +387,14 @@ def ingerer_feuille(
         header_row = header_row_force or _detecter_header_row(ws)
 
         entetes: list[str] = []
-        for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row, values_only=False)):
+        for cell in next(
+            ws.iter_rows(min_row=header_row, max_row=header_row, values_only=False)
+        ):
             entetes.append(str(cell.value) if cell.value is not None else "")
 
-        # mapping = _analyser_entetes(entetes, feuille.index_feuille, header_row)
         from app.services.mapping import charger_mapping_pour_ingestion
         mapping_colonnes = charger_mapping_pour_ingestion(db, feuille, entetes, header_row)
-        # Construit un MappingFeuille-like pour _extraire_lignes
+
         from app.services.ingestion import MappingFeuille as MF
         mapping = MF(
             index_feuille=feuille.index_feuille,
@@ -340,28 +403,30 @@ def ingerer_feuille(
             entetes=entetes,
         )
 
-        lignes = _extraire_lignes(ws, mapping, mode, limite_lignes, ligne_debut, ligne_fin)
+        lignes, nb_rejetees = _extraire_lignes(
+            ws, mapping, mode, limite_lignes, ligne_debut, ligne_fin
+        )
 
-        # Fallback type_ouvrage depuis le nom de la feuille
+        # Fallback type_ouvrage_brut depuis le nom de la feuille
         nom_feuille_upper = feuille.nom_feuille.upper()
         type_feuille = None
         for code in ("PMH", "HVA", "PEA", "HV"):
             if code in nom_feuille_upper:
                 type_feuille = code
                 break
-        nb = 0
-        for ligne in lignes:
-            type_ouvrage = ligne.get("type_ouvrage_brut") or type_feuille
 
-            # Détermine le statut qualité
+        nb_stockees = 0
+        nb_valides = 0
+        for ligne in lignes:
             lat = ligne.get("latitude_decimal")
             lon = ligne.get("longitude_decimal")
             if lat is None or lon is None:
                 statut_qualite = "geom_invalide"
-                message_qualite = None
+                message_qualite = "Coordonnées manquantes ou invalides"
             else:
                 statut_qualite = "ok"
                 message_qualite = None
+                nb_valides += 1
 
             record = LigneIngeree(
                 id_feuille=feuille.id_feuille,
@@ -370,29 +435,32 @@ def ingerer_feuille(
                 donnees_brutes=ligne["donnees_brutes"],
                 district_brut=ligne.get("district_brut"),
                 region_brute=ligne.get("region_brute"),
+                # I1 : departement_brut (pas departement_brute)
                 departement_brut=ligne.get("departement_brute"),
                 sous_prefecture_brute=ligne.get("sous_prefecture_brute"),
                 localite_brute=ligne.get("localite_brute"),
                 type_localite_brut=ligne.get("type_localite_brut"),
                 latitude_decimal=lat,
                 longitude_decimal=lon,
+                type_ouvrage_brut=ligne.get("type_ouvrage_brut") or type_feuille,
                 etat_ouvrage_brut=ligne.get("etat_ouvrage_brut"),
                 annee_projet=_to_int(ligne.get("annee_projet")),
                 bailleur_brut=ligne.get("bailleur_brut"),
                 type_financement_brut=ligne.get("type_financement_brut"),
+                usage_ouvrage_brut=ligne.get("usage_ouvrage_brut"),
                 a_cgpe=_to_bool(ligne.get("a_cgpe")),
                 statut_qualite=statut_qualite,
                 message_qualite=message_qualite,
             )
             db.add(record)
-            nb += 1
+            nb_stockees += 1
 
         db.flush()
-        feuille.nb_lignes = len(lignes)
-        feuille.nb_lignes_valides = nb
+        feuille.nb_lignes = nb_stockees
+        feuille.nb_lignes_valides = nb_valides
         feuille.statut_ingestion = "ingere"
         db.flush()
-        return nb
+        return {"nb_stockees": nb_stockees, "nb_rejetees": nb_rejetees}
     finally:
         wb.close()
 
@@ -410,14 +478,24 @@ def ingerer_fichier(
     ligne_fin: int | None = None,
     header_row_force: int | None = None,
 ) -> dict[str, Any]:
-    """Orchestre l'ingestion d'un fichier."""
+    """
+    Orchestre l'ingestion d'un fichier.
+
+    IMPORTANT (I2) : ne met PAS à jour `fichier.statut`.
+    C'est `run.py` qui le fait en fin de pipeline (cf. décision A3).
+    """
     from datetime import datetime, timezone
 
-    feuilles = db.scalars(select(Feuille).where(Feuille.id_fichier == fichier.id_fichier)).all()
+    feuilles = db.scalars(
+        select(Feuille).where(Feuille.id_fichier == fichier.id_fichier)
+    ).all()
     if not feuilles:
-        raise HTTPException(400, f"Aucune feuille pour le fichier {fichier.id_fichier}")
+        raise HTTPException(
+            400, f"Aucune feuille pour le fichier {fichier.id_fichier}"
+        )
 
-    total = 0
+    total_stockees = 0
+    total_rejetees = 0
     resultats = []
 
     for feuille in feuilles:
@@ -426,23 +504,23 @@ def ingerer_fichier(
         feuille_nom = feuille.nom_feuille
 
         try:
-            nb = ingerer_feuille(
+            res = ingerer_feuille(
                 db, feuille, run, mode, limite_lignes, ligne_debut, ligne_fin,
                 fichier.chemin_stockage, header_row_force,
             )
-            total += nb
+            total_stockees += res["nb_stockees"]
+            total_rejetees += res["nb_rejetees"]
             resultats.append({
                 "id_feuille": feuille_id,
                 "nom_feuille": feuille_nom,
                 "statut": "ok",
-                "nb_lignes": nb,
+                "nb_stockees": res["nb_stockees"],
+                "nb_rejetees": res["nb_rejetees"],
             })
         except Exception as e:
             import traceback
-            # Rollback AVANT d'accéder aux attributs ORM
             db.rollback()
-            logger.exception("Erreur feuille %s : %s", feuille_nom, e,) #  traceback.format_exc()
-            # Recharge la feuille (après rollback)
+            logger.exception("Erreur feuille %s : %s", feuille_nom, e)
             feuille = db.get(Feuille, feuille_id)
             if feuille is not None:
                 feuille.statut_ingestion = "erreur"
@@ -455,17 +533,18 @@ def ingerer_fichier(
                 "message": str(e),
             })
 
-    run.nb_lignes_ingerees = total
-    run.statut = "termine" if total > 0 else "erreur"
-    run.finished_at = datetime.now(timezone.utc)
-    fichier.nb_lignes_total = total
-    fichier.statut = "ingere"
-    fichier.date_ingestion = datetime.now(timezone.utc)
+    # Mise à jour des compteurs agrégés
+    run.nb_lignes_ingerees = total_stockees
+    # B5 : nb_lignes_total = stockées + rejetées
+    fichier.nb_lignes_total = total_stockees + total_rejetees
+    # I2 : ne PAS toucher à fichier.statut (fait par run.py)
+    # fichier.date_ingestion sera mise à jour par run.py aussi.
     db.flush()
 
     return {
         "id_fichier": fichier.id_fichier,
         "id_run": run.id_run,
-        "total_lignes": total,
+        "total_stockees": total_stockees,
+        "total_rejetees": total_rejetees,
         "feuilles": resultats,
     }

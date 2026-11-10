@@ -1,8 +1,9 @@
 """
 Service de run : exécute le pipeline complet (ingestion → rapprochement → consolidation).
 
-Utilisé par :
-- POST /fichiers/{id}/runs (asynchrone via BackgroundTask)
+IMPORTANT (Bible § 3.2.4, décision A3) :
+- `fichier.statut` est mis à jour ICI, en fin de pipeline, pas par `ingestion.py`.
+- `fichier.date_ingestion` idem.
 """
 from __future__ import annotations
 
@@ -20,6 +21,30 @@ from app.services.ingestion import ingerer_fichier
 from app.services.rapprochement import rapprocher_lignes_run
 
 logger = logging.getLogger("dhr.run")
+
+
+def _determiner_statut_fichier(db: Session, fichier: Fichier) -> str:
+    """
+    Détermine le statut du fichier à partir des feuilles :
+    - 'ingere'  : au moins une feuille 'ingere' et aucune 'erreur'
+    - 'partiel' : au moins une 'erreur' et au moins une 'ingere'
+    - 'erreur'  : toutes les feuilles 'erreur'
+    """
+    feuilles = db.scalars(
+        select(Feuille).where(Feuille.id_fichier == fichier.id_fichier)
+    ).all()
+    if not feuilles:
+        return "erreur"
+
+    statuts = [f.statut_ingestion for f in feuilles]
+    nb_ok = sum(1 for s in statuts if s == "ingere")
+    nb_err = sum(1 for s in statuts if s == "erreur")
+
+    if nb_err == len(statuts):
+        return "erreur"
+    if nb_err > 0 and nb_ok > 0:
+        return "partiel"
+    return "ingere"
 
 
 def creer_run(
@@ -57,7 +82,7 @@ def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
     2. Rapprochement
     3. Consolidation
 
-    Met à jour le run et le fichier.
+    Met à jour le run ET le fichier (statut, date_ingestion).
     """
     run = db.get(IngestionRun, id_run)
     if run is None:
@@ -89,9 +114,15 @@ def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
         stats_consolidation = consolider_lignes_run(db, id_run)
         db.flush()
 
-        # Met à jour le run
-        run.statut = "termine"
+        # Mise à jour du run
+        total = resultat_ingestion["total_stockees"]
+        run.statut = "termine" if total > 0 else "erreur"
         run.finished_at = datetime.now(timezone.utc)
+        db.flush()
+
+        # Mise à jour du fichier (I2 : c'est ici, pas dans ingestion.py)
+        fichier.statut = _determiner_statut_fichier(db, fichier)
+        fichier.date_ingestion = datetime.now(timezone.utc)
         db.flush()
 
         return {
@@ -105,11 +136,15 @@ def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
     except Exception as e:
         logger.exception("Erreur pipeline run %s : %s", id_run, e)
         db.rollback()
-        # Recharge le run après rollback
         run = db.get(IngestionRun, id_run)
         if run is not None:
             run.statut = "erreur"
             run.message = str(e)
             run.finished_at = datetime.now(timezone.utc)
+            db.flush()
+        # Fichier en erreur aussi
+        fichier = db.get(Fichier, fichier.id_fichier if fichier else None)
+        if fichier is not None:
+            fichier.statut = "erreur"
             db.flush()
         raise

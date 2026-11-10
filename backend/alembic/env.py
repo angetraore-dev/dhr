@@ -8,6 +8,14 @@ est ignorée.
 Garde-fou : si Base.metadata.tables est vide, on lève une exception
 plutôt que de laisser Alembic ne rien faire silencieusement.
 """
+# NOTE : les migrations autogénérées (`alembic revision --autogenerate`)
+# contiendront TOUJOURS des faux positifs sur :
+#   - les colonnes générées (`geom`, `geom_centre`)
+#   - les index GIN et GIST
+# Ces objets sont créés en SQL brut dans les migrations (SQLAlchemy ne les gère
+# pas nativement). Ne PAS appliquer ces migrations de test. Vérifier qu'elles
+# ne contiennent pas de `op.drop_table` ou `op.drop_column` sur des colonnes
+# non générées (ce qui signalerait une vraie dérive).
 from __future__ import annotations
 
 import sys
