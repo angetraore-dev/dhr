@@ -1,19 +1,15 @@
 """
-Modèles SQLAlchemy 2.x + GeoAlchemy2 — miroir exact de sql/schema.sql.
+Modèles SQLAlchemy 2.x — miroir exact de `sql/schema.sql` et de la migration
+`0001_initial.py`.
 
 Conventions :
-- DeclarativeBase commune (app.db.Base)
-- Colonnes nommées comme en base (snake_case)
-- Types PostgreSQL respectés (jsonb, geometry, timestamptz…)
-- Contraintes CHECK reproduites via CheckConstraint
-- Index reproduits via Index (dans __table_args__)
-- Colonnes générées (geom) : NON déclarées en ORM, ajoutées en migration manuelle
-  (SQLAlchemy ne gère pas GENERATED ALWAYS AS ... STORED de façon portable)
-
-Sections :
-1. Référentiels
-2. Ingestion
-3. Métier consolidé
+- Colonnes nommées comme en base (snake_case).
+- Types PostgreSQL respectés (JSONB, Numeric, DateTime(timezone=True)...).
+- Contraintes CHECK et UNIQUE reproduites dans __table_args__.
+- Index btree et partiels reproduits dans __table_args__.
+- Index GIN/GIST et colonnes générées (`geom`, `geom_centre`) NON déclarés
+  en ORM : gérés en migration (SQLAlchemy ne les gère pas nativement).
+- `metadata` (colonne) → attribut Python `metadata_` (conflit Base.metadata).
 """
 from __future__ import annotations
 
@@ -21,13 +17,13 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from geoalchemy2 import Geometry
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -45,28 +41,21 @@ from app.db import Base
 
 
 # =====================================================================
-# Helpers de typage
-# =====================================================================
-
-# On utilise BigInteger pour les PK/FK "bigserial", Integer pour "serial".
-# Pour les timestamptz, DateTime(timezone=True).
-# Pour les jsonb, JSONB (dialecte PostgreSQL).
-
-
-# =====================================================================
 # 1. RÉFÉRENTIELS
 # =====================================================================
 
 
 class Source(Base):
-    """Émetteur de fichiers : structure publique, privée, bailleur, État."""
+    """Émetteur de fichiers (ONEP, SODECI, UNICEF, BAD, LONACI, ETAT_CI...)."""
 
     __tablename__ = "source"
 
     id_source: Mapped[int] = mapped_column(Integer, primary_key=True)
-    nom: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    nom: Mapped[str] = mapped_column(String(100), nullable=False)
     type_source: Mapped[str] = mapped_column(String(30), nullable=False)
-    actif: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    actif: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
     commentaire: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -80,11 +69,14 @@ class Source(Base):
             "type_source IN ('public','prive','bailleur','etat','autre')",
             name="source_type_source_check",
         ),
+        UniqueConstraint("nom", name="uq_source_nom"),
     )
 
     # Relations
     fichiers: Mapped[list[Fichier]] = relationship(back_populates="source")
-    projets_finances: Mapped[list[ProjetFinancement]] = relationship(back_populates="financeur")
+    projets_finances: Mapped[list[ProjetFinancement]] = relationship(
+        back_populates="financeur"
+    )
 
 
 class RefGeoAdmin(Base):
@@ -117,8 +109,7 @@ class RefGeoAdmin(Base):
             name="ref_geo_admin_type_localite_check",
         ),
         CheckConstraint(
-            "(niveau <> 'localite' AND type_localite IS NULL) "
-            "OR (niveau = 'localite')",
+            "(niveau <> 'localite' AND type_localite IS NULL) OR (niveau = 'localite')",
             name="chk_ref_geo_type_localite",
         ),
         CheckConstraint(
@@ -126,33 +117,36 @@ class RefGeoAdmin(Base):
             "OR (niveau <> 'district' AND parent_id IS NOT NULL)",
             name="chk_ref_geo_parent",
         ),
-        UniqueConstraint("parent_id", "nom", "niveau", name="uq_ref_geo_parent_nom_niveau"),
-        Index("idx_ref_geo_parent", "parent_id"),
+        UniqueConstraint(
+            "parent_id", "nom", "niveau", name="uq_ref_geo_parent_nom_niveau"
+        ),
         Index("idx_ref_geo_niveau", "niveau"),
-        # idx_ref_geo_nom_trgm : à créer manuellement en migration (extension pg_trgm)
+        Index("idx_ref_geo_parent", "parent_id"),
+        # idx_ref_geo_nom_trgm : GIN, créé en migration
     )
 
     parent: Mapped[RefGeoAdmin | None] = relationship(
         remote_side="RefGeoAdmin.id_geo", back_populates="enfants"
     )
     enfants: Mapped[list[RefGeoAdmin]] = relationship(back_populates="parent")
-
     localites: Mapped[list[Localite]] = relationship(back_populates="ref_geo")
 
 
 class Localite(Base):
-    """Localité métier (village/campement) rattachée à un nœud de niveau localite."""
+    """Entité métier village/campement rattachée à un nœud niveau='localite'."""
 
     __tablename__ = "localite"
 
     id_localite: Mapped[int] = mapped_column(Integer, primary_key=True)
     id_geo: Mapped[int] = mapped_column(
-        Integer, ForeignKey("ref_geo_admin.id_geo", ondelete="RESTRICT"), nullable=False
+        Integer,
+        ForeignKey("ref_geo_admin.id_geo", ondelete="RESTRICT"),
+        nullable=False,
     )
     nom_usage: Mapped[str] = mapped_column(String(150), nullable=False)
-    latitude_centre: Mapped[float | None] = mapped_column()
-    longitude_centre: Mapped[float | None] = mapped_column()
-    # geom_centre : colonne GENERATED, non déclarée en ORM (ajoutée en migration)
+    latitude_centre: Mapped[float | None] = mapped_column(Float)
+    longitude_centre: Mapped[float | None] = mapped_column(Float)
+    # geom_centre : colonne générée, ajoutée en migration
     commentaire: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
@@ -166,9 +160,9 @@ class Localite(Base):
 
     __table_args__ = (
         Index("idx_localite_geo", "id_geo"),
-        # idx_localite_geom : GIST sur colonne générée, créé en migration
-        # idx_localite_nom_trgm : GIN pg_trgm, créé en migration
-        Index("idx_localite_metadata", "metadata", postgresql_using="gin"),
+        # idx_localite_geom : GIST, créé en migration
+        # idx_localite_nom_trgm : GIN, créé en migration
+        # idx_localite_metadata : GIN, créé en migration
     )
 
     ref_geo: Mapped[RefGeoAdmin] = relationship(back_populates="localites")
@@ -177,24 +171,28 @@ class Localite(Base):
     )
     ouvrages: Mapped[list[Ouvrage]] = relationship(back_populates="localite")
     cgpes: Mapped[list[CGPE]] = relationship(back_populates="localite")
-    lignes_ingerees: Mapped[list[LigneIngeree]] = relationship(back_populates="localite")
+    lignes_ingerees: Mapped[list[LigneIngeree]] = relationship(
+        back_populates="localite"
+    )
 
 
 class LocaliteAlias(Base):
-    """Alias de noms de localités pour le rapprochement flou."""
+    """Variantes de noms d'une localité (V2, vide au MVP)."""
 
     __tablename__ = "localite_alias"
 
     id_alias: Mapped[int] = mapped_column(Integer, primary_key=True)
     id_localite: Mapped[int] = mapped_column(
-        Integer, ForeignKey("localite.id_localite", ondelete="CASCADE"), nullable=False
+        Integer,
+        ForeignKey("localite.id_localite", ondelete="CASCADE"),
+        nullable=False,
     )
     alias: Mapped[str] = mapped_column(String(150), nullable=False)
     source_alias: Mapped[str | None] = mapped_column(String(100))
 
     __table_args__ = (
         UniqueConstraint("id_localite", "alias", name="uq_alias_localite"),
-        # idx_alias_trgm : GIN pg_trgm, créé en migration
+        # idx_alias_trgm : GIN, créé en migration
     )
 
     localite: Mapped[Localite] = relationship(back_populates="alias")
@@ -206,13 +204,15 @@ class LocaliteAlias(Base):
 
 
 class Fichier(Base):
-    """Fichier reçu (Excel, CSV...). hash_sha256 non unique."""
+    """Fichier Excel uploadé. hash_sha256 non unique (réingestion légitime)."""
 
     __tablename__ = "fichier"
 
     id_fichier: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     id_source: Mapped[int] = mapped_column(
-        Integer, ForeignKey("source.id_source", ondelete="RESTRICT"), nullable=False
+        Integer,
+        ForeignKey("source.id_source", ondelete="RESTRICT"),
+        nullable=False,
     )
     nom_fichier_original: Mapped[str] = mapped_column(String(255), nullable=False)
     chemin_stockage: Mapped[str] = mapped_column(Text, nullable=False)
@@ -222,11 +222,17 @@ class Fichier(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     date_ingestion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    statut: Mapped[str] = mapped_column(String(20), nullable=False, default="en_attente")
-    nb_feuilles: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    nb_lignes_total: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    statut: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'en_attente'")
+    )
+    nb_feuilles: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    nb_lignes_total: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     est_reingestion: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false"
+        Boolean, nullable=False, server_default=text("false")
     )
     commentaire: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
@@ -266,10 +272,18 @@ class Feuille(Base):
     )
     nom_feuille: Mapped[str] = mapped_column(String(150), nullable=False)
     index_feuille: Mapped[int] = mapped_column(Integer, nullable=False)
-    type_contenu: Mapped[str] = mapped_column(String(20), nullable=False, default="inconnu")
-    nb_lignes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    nb_lignes_valides: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    statut_ingestion: Mapped[str] = mapped_column(String(20), nullable=False, default="en_attente")
+    type_contenu: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'inconnu'")
+    )
+    nb_lignes: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    nb_lignes_valides: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    statut_ingestion: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'en_attente'")
+    )
     message_erreur: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -284,7 +298,9 @@ class Feuille(Base):
             "statut_ingestion IN ('en_attente','en_cours','ingere','partiel','erreur')",
             name="feuille_statut_ingestion_check",
         ),
-        UniqueConstraint("id_fichier", "index_feuille", name="uq_feuille_fichier_index"),
+        UniqueConstraint(
+            "id_fichier", "index_feuille", name="uq_feuille_fichier_index"
+        ),
         Index("idx_feuille_fichier", "id_fichier"),
     )
 
@@ -299,7 +315,7 @@ class Feuille(Base):
 
 
 class MappingFeuille(Base):
-    """Mapping validé par l'utilisateur pour une feuille."""
+    """Mapping validé (entête Excel → champ cible)."""
 
     __tablename__ = "mapping_feuille"
 
@@ -311,7 +327,7 @@ class MappingFeuille(Base):
     champ_cible: Mapped[str | None] = mapped_column(String(100))
     confiance: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
     valide_par_utilisateur: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false"
+        Boolean, nullable=False, server_default=text("false")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -330,7 +346,7 @@ class MappingFeuille(Base):
 
 
 class IngestionRun(Base):
-    """Exécution d'ingestion avec paramètres choisis par l'utilisateur."""
+    """Exécution d'ingestion (paramètres + statut)."""
 
     __tablename__ = "ingestion_run"
 
@@ -341,12 +357,18 @@ class IngestionRun(Base):
     id_feuille: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("feuille.id_feuille", ondelete="CASCADE")
     )
-    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="complet")
+    mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'complet'")
+    )
     limite_lignes: Mapped[int | None] = mapped_column(Integer)
     ligne_debut: Mapped[int | None] = mapped_column(Integer)
     ligne_fin: Mapped[int | None] = mapped_column(Integer)
-    nb_lignes_ingerees: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    statut: Mapped[str] = mapped_column(String(20), nullable=False, default="en_cours")
+    nb_lignes_ingerees: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    statut: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'en_cours'")
+    )
     message: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -354,18 +376,18 @@ class IngestionRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
-        CheckConstraint("mode IN ('complet','echantillon','plage')", name="ingestion_run_mode_check"),
+        CheckConstraint(
+            "mode IN ('complet','echantillon','plage')",
+            name="ingestion_run_mode_check",
+        ),
         CheckConstraint(
             "statut IN ('en_cours','termine','erreur','annule')",
             name="ingestion_run_statut_check",
         ),
         CheckConstraint(
-            "(mode = 'complet' AND limite_lignes IS NULL "
-            "AND ligne_debut IS NULL AND ligne_fin IS NULL) "
-            "OR (mode = 'echantillon' AND limite_lignes IS NOT NULL "
-            "AND ligne_debut IS NULL AND ligne_fin IS NULL) "
-            "OR (mode = 'plage' AND limite_lignes IS NULL "
-            "AND ligne_debut IS NOT NULL AND ligne_fin IS NOT NULL "
+            "(mode = 'complet' AND limite_lignes IS NULL AND ligne_debut IS NULL AND ligne_fin IS NULL) "
+            "OR (mode = 'echantillon' AND limite_lignes IS NOT NULL AND ligne_debut IS NULL AND ligne_fin IS NULL) "
+            "OR (mode = 'plage' AND limite_lignes IS NULL AND ligne_debut IS NOT NULL AND ligne_fin IS NOT NULL "
             "AND ligne_fin >= ligne_debut)",
             name="chk_run_mode_params",
         ),
@@ -380,7 +402,7 @@ class IngestionRun(Base):
 
 
 class LigneIngeree(Base):
-    """Ligne brute normalisée issue d'une feuille."""
+    """Ligne brute d'Excel (matière première de la consolidation)."""
 
     __tablename__ = "ligne_ingeree"
 
@@ -392,9 +414,9 @@ class LigneIngeree(Base):
         BigInteger, ForeignKey("ingestion_run.id_run", ondelete="SET NULL")
     )
     num_ligne_source: Mapped[int] = mapped_column(Integer, nullable=False)
-
     donnees_brutes: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
 
+    # Contexte administratif
     district_brut: Mapped[str | None] = mapped_column(String(150))
     region_brute: Mapped[str | None] = mapped_column(String(150))
     departement_brut: Mapped[str | None] = mapped_column(String(150))
@@ -402,18 +424,24 @@ class LigneIngeree(Base):
     localite_brute: Mapped[str | None] = mapped_column(String(150))
     type_localite_brut: Mapped[str | None] = mapped_column(String(30))
 
-    latitude_decimal: Mapped[float | None] = mapped_column()
-    longitude_decimal: Mapped[float | None] = mapped_column()
-    # geom : colonne GENERATED, ajoutée en migration
+    # Coordonnées
+    latitude_decimal: Mapped[float | None] = mapped_column(Float)
+    longitude_decimal: Mapped[float | None] = mapped_column(Float)
+    # geom : colonne générée, ajoutée en migration
 
+    # Attributs métier bruts (P12)
     type_ouvrage_brut: Mapped[str | None] = mapped_column(String(50))
     etat_ouvrage_brut: Mapped[str | None] = mapped_column(String(50))
     annee_projet: Mapped[int | None] = mapped_column(Integer)
     bailleur_brut: Mapped[str | None] = mapped_column(String(150))
     type_financement_brut: Mapped[str | None] = mapped_column(String(50))
+    usage_ouvrage_brut: Mapped[str | None] = mapped_column(String(50))
     a_cgpe: Mapped[bool | None] = mapped_column(Boolean)
 
-    statut_qualite: Mapped[str] = mapped_column(String(30), nullable=False, default="ok")
+    # Qualité
+    statut_qualite: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=text("'ok'")
+    )
     message_qualite: Mapped[str | None] = mapped_column(Text)
     id_localite: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("localite.id_localite", ondelete="SET NULL")
@@ -431,21 +459,26 @@ class LigneIngeree(Base):
             "'type_ouvrage_inconnu','rejete','doublon_suspect')",
             name="ligne_ingeree_statut_qualite_check",
         ),
-        UniqueConstraint("id_run", "num_ligne_source", name="uq_ligne_run_num"),
+        UniqueConstraint(
+            "id_feuille", "id_run", "num_ligne_source", name="uq_ligne_feuille_run_num"
+        ),
         Index("idx_ligne_feuille", "id_feuille"),
         Index("idx_ligne_run", "id_run"),
-        # idx_ligne_geom : GIST sur colonne générée, créé en migration
+        # idx_ligne_geom : GIST, créé en migration
         Index("idx_ligne_statut_qualite", "statut_qualite"),
         Index("idx_ligne_localite", "id_localite"),
         Index("idx_ligne_type_ouvrage", "type_ouvrage_brut"),
-        Index("idx_ligne_donnees_brutes", "donnees_brutes", postgresql_using="gin"),
+        Index("idx_ligne_usage_ouvrage", "usage_ouvrage_brut"),
+        # idx_ligne_donnees_brutes : GIN, créé en migration
         Index("idx_ligne_ouvrage", "id_ouvrage_consolide"),
     )
 
     feuille: Mapped[Feuille] = relationship(back_populates="lignes")
     run: Mapped[IngestionRun | None] = relationship(back_populates="lignes")
     localite: Mapped[Localite | None] = relationship(back_populates="lignes_ingerees")
-    ouvrage_consolide: Mapped[Ouvrage | None] = relationship(back_populates="lignes_sources")
+    ouvrage_consolide: Mapped[Ouvrage | None] = relationship(
+        back_populates="lignes_sources"
+    )
 
 
 # =====================================================================
@@ -461,18 +494,20 @@ class Ouvrage(Base):
     id_ouvrage: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     code_ouvrage: Mapped[str | None] = mapped_column(String(100))
     id_localite: Mapped[int] = mapped_column(
-        Integer, ForeignKey("localite.id_localite", ondelete="RESTRICT"), nullable=False
+        Integer,
+        ForeignKey("localite.id_localite", ondelete="RESTRICT"),
+        nullable=False,
     )
-    # Nouveaux champs
     nature_ouvrage: Mapped[str | None] = mapped_column(String(20))
     type_alimentation: Mapped[str | None] = mapped_column(String(20))
     realisation_par: Mapped[str | None] = mapped_column(String(20))
-
-    etat: Mapped[str] = mapped_column(String(20), nullable=False, default="inconnu")
+    etat: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'inconnu'")
+    )
     annee_realisation: Mapped[int | None] = mapped_column(Integer)
-    latitude_decimal: Mapped[float | None] = mapped_column()
-    longitude_decimal: Mapped[float | None] = mapped_column()
-    # geom : colonne GENERATED, ajoutée en migration
+    latitude_decimal: Mapped[float | None] = mapped_column(Float)
+    longitude_decimal: Mapped[float | None] = mapped_column(Float)
+    # geom : colonne générée, ajoutée en migration
     commentaire: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
@@ -486,39 +521,63 @@ class Ouvrage(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("nature_ouvrage IS NULL OR nature_ouvrage IN ('puits','forage','inconnu')", name="ouvrage_nature_check"),
-        CheckConstraint("type_alimentation IS NULL OR type_alimentation IN ('PMH','HVA','PEA','HV','AUTRE')", name="ouvrage_alimentation_check"),
-        CheckConstraint("realisation_par IS NULL OR realisation_par IN ('public','prive','inconnu')", name="ouvrage_realisation_check"),
-        CheckConstraint("etat IN ('fonctionnel','en_panne','abandonne','inconnu')", name="ouvrage_etat_check"),
+        CheckConstraint(
+            "nature_ouvrage IS NULL OR nature_ouvrage IN ('puits','forage','inconnu')",
+            name="ouvrage_nature_check",
+        ),
+        CheckConstraint(
+            "type_alimentation IS NULL OR type_alimentation IN ('PMH','HVA','PEA','HV','AUTRE')",
+            name="ouvrage_alimentation_check",
+        ),
+        CheckConstraint(
+            "realisation_par IS NULL OR realisation_par IN ('public','prive','inconnu')",
+            name="ouvrage_realisation_check",
+        ),
+        CheckConstraint(
+            "etat IN ('fonctionnel','en_panne','abandonne','inconnu')",
+            name="ouvrage_etat_check",
+        ),
+        Index(
+            "idx_ouvrage_code",
+            "code_ouvrage",
+            postgresql_where=text("code_ouvrage IS NOT NULL"),
+        ),
         Index("idx_ouvrage_localite", "id_localite"),
+        Index("idx_ouvrage_etat", "etat"),
         Index("idx_ouvrage_nature", "nature_ouvrage"),
         Index("idx_ouvrage_alimentation", "type_alimentation"),
         Index("idx_ouvrage_realisation", "realisation_par"),
-        Index("idx_ouvrage_etat", "etat"),
-        Index("idx_ouvrage_code", "code_ouvrage", postgresql_where="code_ouvrage IS NOT NULL"),
-        Index("idx_ouvrage_metadata", "metadata", postgresql_using="gin"),
-        Index("idx_ouvrage_qualite_eau", "qualite_eau", postgresql_using="gin"),
+        # idx_ouvrage_geom : GIST, créé en migration
+        # idx_ouvrage_metadata, idx_ouvrage_qualite_eau : GIN, créés en migration
     )
 
     localite: Mapped[Localite] = relationship(back_populates="ouvrages")
     cgpes: Mapped[list[CGPE]] = relationship(back_populates="ouvrage")
-    financements: Mapped[list[OuvrageProjet]] = relationship(back_populates="ouvrage", cascade="all, delete-orphan")
-    lignes_sources: Mapped[list[LigneIngeree]] = relationship(back_populates="ouvrage_consolide")
+    financements: Mapped[list[OuvrageProjet]] = relationship(
+        back_populates="ouvrage", cascade="all, delete-orphan"
+    )
+    lignes_sources: Mapped[list[LigneIngeree]] = relationship(
+        back_populates="ouvrage_consolide"
+    )
 
 
 class CGPE(Base):
-    """Comité de gestion de point d'eau."""
+    """Comité de Gestion de Point d'Eau (V2, vide au MVP)."""
 
     __tablename__ = "cgpe"
 
     id_cgpe: Mapped[int] = mapped_column(Integer, primary_key=True)
     id_localite: Mapped[int] = mapped_column(
-        Integer, ForeignKey("localite.id_localite", ondelete="CASCADE"), nullable=False
+        Integer,
+        ForeignKey("localite.id_localite", ondelete="CASCADE"),
+        nullable=False,
     )
     id_ouvrage: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("ouvrage.id_ouvrage", ondelete="SET NULL")
     )
-    existe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    existe: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
     date_creation: Mapped[date | None] = mapped_column(Date)
     statut: Mapped[str | None] = mapped_column(String(20))
     nb_membres: Mapped[int | None] = mapped_column(Integer)
@@ -540,7 +599,7 @@ class CGPE(Base):
         ),
         Index("idx_cgpe_localite", "id_localite"),
         Index("idx_cgpe_ouvrage", "id_ouvrage"),
-        Index("idx_cgpe_metadata", "metadata", postgresql_using="gin"),
+        # idx_cgpe_metadata : GIN, créé en migration
     )
 
     localite: Mapped[Localite] = relationship(back_populates="cgpes")
@@ -548,7 +607,7 @@ class CGPE(Base):
 
 
 class ProjetFinancement(Base):
-    """Projet de financement porté par un bailleur ou l'État."""
+    """Projet de financement porté par un bailleur ou l'État (V2, vide au MVP)."""
 
     __tablename__ = "projet_financement"
 
@@ -556,11 +615,13 @@ class ProjetFinancement(Base):
     nom_projet: Mapped[str] = mapped_column(String(255), nullable=False)
     annee: Mapped[int | None] = mapped_column(Integer)
     id_source_financeur: Mapped[int] = mapped_column(
-        Integer, ForeignKey("source.id_source", ondelete="RESTRICT"), nullable=False
+        Integer,
+        ForeignKey("source.id_source", ondelete="RESTRICT"),
+        nullable=False,
     )
     type_financement: Mapped[str] = mapped_column(String(20), nullable=False)
     montant: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
-    devise: Mapped[str | None] = mapped_column(String(3), server_default="XOF")
+    devise: Mapped[str | None] = mapped_column(String(3), server_default=text("'XOF'"))
     commentaire: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -574,8 +635,8 @@ class ProjetFinancement(Base):
             "type_financement IN ('etat','prive','partenariat','inconnu')",
             name="projet_financement_type_check",
         ),
-        Index("idx_projet_source", "id_source_financeur"),
         Index("idx_projet_annee", "annee"),
+        Index("idx_projet_source", "id_source_financeur"),
     )
 
     financeur: Mapped[Source] = relationship(back_populates="projets_finances")
@@ -585,19 +646,23 @@ class ProjetFinancement(Base):
 
 
 class OuvrageProjet(Base):
-    """Association N..N Ouvrage–Projet avec rôle."""
+    """Association N..N Ouvrage ↔ Projet avec rôle (V2, vide au MVP)."""
 
     __tablename__ = "ouvrage_projet"
 
     id_ouvrage: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("ouvrage.id_ouvrage", ondelete="CASCADE"), primary_key=True
+        BigInteger,
+        ForeignKey("ouvrage.id_ouvrage", ondelete="CASCADE"),
+        primary_key=True,
     )
     id_projet: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("projet_financement.id_projet", ondelete="CASCADE"),
         primary_key=True,
     )
-    role_financement: Mapped[str] = mapped_column(String(20), nullable=False, default="principal")
+    role_financement: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'principal'")
+    )
 
     __table_args__ = (
         CheckConstraint(

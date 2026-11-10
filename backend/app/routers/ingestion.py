@@ -46,7 +46,7 @@ def list_lignes_run(
     id: int,
     statut_qualite: Literal[
         "ok", "localite_non_resolue", "geom_invalide",
-        "type_ouvrage_inconnu", "rejete", "doublon_suspect",
+        "type_alimentation_inconnu", "rejete", "doublon_suspect",
     ] | None = Query(None),
     pagination: CursorPagination = Depends(),
     db: Session = Depends(get_db),
@@ -90,7 +90,7 @@ def list_lignes_feuille(
     id_run: int | None = Query(None),
     statut_qualite: Literal[
         "ok", "localite_non_resolue", "geom_invalide",
-        "type_ouvrage_inconnu", "rejete", "doublon_suspect",
+        "type_alimentation_inconnu", "rejete", "doublon_suspect",
     ] | None = Query(None),
     pagination: CursorPagination = Depends(),
     db: Session = Depends(get_db),

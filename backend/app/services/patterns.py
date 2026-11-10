@@ -52,10 +52,15 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
         re.compile(r"^x$", re.I),
     ],
     # --- Ouvrage ---
-    "type_ouvrage_brut": [
+    "nature_ouvrage_brut": [
         re.compile(r"^type[_\s]ouvrage$", re.I),
-        re.compile(r"^type_?\s*ouvrage$", re.I),
+        re.compile(r"^type[_\s]de[_\s]forage$", re.I),
         re.compile(r"q3\.1\.\d+[a-z]?\.\s*type\s*d.?ouvrage", re.I),
+    ],
+    "type_alimentation_brut": [
+        re.compile(r"^usage[_\s]ouvrage$", re.I),
+        re.compile(r"^type[_\s]alimentation", re.I),
+        re.compile(r"^alimentation", re.I),
     ],
     "etat_ouvrage_brut": [
         re.compile(r"^etat(_ouvrage)?$", re.I),

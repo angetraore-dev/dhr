@@ -6,7 +6,7 @@
 #   docker compose up -d --build          # démarre tout
 #   docker compose logs -f backend        # logs du back
 #   docker compose exec db psql -U dhr -d dhr   # accès psql
-#   docker compose down -v                # arrête et supprime les volumes
+#   docker compose down -v --rmi all    # arrête et supprime les volumes & images
 # =====================================================================
 
 name: dhr

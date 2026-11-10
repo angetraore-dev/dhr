@@ -56,7 +56,7 @@ class LigneIngeree(BaseModel):
     id_feuille: int
     num_ligne_source: int
     localite_brute: str | None = None
-    type_ouvrage_brut: str | None = None
+    type_alimentation_brut: str | None = None
     latitude_decimal: float | None = None
     longitude_decimal: float | None = None
     geom: GeoJSONPoint | None = None
@@ -64,7 +64,7 @@ class LigneIngeree(BaseModel):
         "ok",
         "localite_non_resolue",
         "geom_invalide",
-        "type_ouvrage_inconnu",
+        "type_alimentation_inconnu",
         "rejete",
         "doublon_suspect",
     ]

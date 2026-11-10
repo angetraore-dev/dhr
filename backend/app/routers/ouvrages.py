@@ -104,9 +104,9 @@ def _build_ouvrage_schema(
     return OuvrageSchema(
         id_ouvrage=o.id_ouvrage,
         code_ouvrage=o.code_ouvrage,
-        nature_ouvrage=o.nature_ouvrage,          # ← Nouveau
-        type_alimentation=o.type_alimentation,    # ← Nouveau
-        realisation_par=o.realisation_par,        # ← Nouveau
+        nature_ouvrage=o.nature_ouvrage,
+        type_alimentation=o.type_alimentation,
+        realisation_par=o.realisation_par,
         etat=o.etat,
         annee_realisation=o.annee_realisation,
         localite=localite,
@@ -137,7 +137,8 @@ def list_ouvrages(
             func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
         )
         .options(
-            # selectinload(Ouvrage.type_ouvrage),  # ← SUPPRIMÉ
+            selectinload(Ouvrage.type_alimentation),
+            selectinload(Ouvrage.nature_ouvrage),
             selectinload(Ouvrage.localite),
             selectinload(Ouvrage.cgpes),
             selectinload(Ouvrage.financements)
@@ -255,7 +256,8 @@ def get_ouvrage(
         )
         .where(Ouvrage.id_ouvrage == id)
         .options(
-            # selectinload(Ouvrage.type_ouvrage),  # ← SUPPRIMÉ
+            selectinload(Ouvrage.type_alimentation),
+            selectinload(Ouvrage.nature_ouvrage),
             selectinload(Ouvrage.localite),
             selectinload(Ouvrage.cgpes),
             selectinload(Ouvrage.financements)

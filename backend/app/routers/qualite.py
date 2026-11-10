@@ -47,7 +47,7 @@ def qualite_fichier(id: int, db: Session = Depends(get_db)):
         ok=counts.get("ok", 0),
         localite_non_resolue=counts.get("localite_non_resolue", 0),
         geom_invalide=counts.get("geom_invalide", 0),
-        type_ouvrage_inconnu=counts.get("type_ouvrage_inconnu", 0),
+        type_alimentation_inconnu=counts.get("type_alimentation_inconnu", 0),
         rejete=counts.get("rejete", 0),
         doublon_suspect=counts.get("doublon_suspect", 0),
     )

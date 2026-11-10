@@ -70,7 +70,7 @@ def _parse_geojson_geom(geojson_str: str | None) -> dict[str, Any] | None:
 def _infer_type_alimentation(nom_feuille: str | None) -> str:
     """Déduit le type d'alimentation du nom de feuille.
     Doit rester cohérent avec consolidation._map_alimentation
-    (mais ici, pas de fallback sur type_ouvrage_brut : on n'a que la feuille)."""
+    (mais ici, pas de fallback sur type_alimentation_brut : on n'a que la feuille)."""
     nom_upper = (nom_feuille or "").upper()
     if "PMH" in nom_upper:
         return "PMH"
@@ -491,7 +491,7 @@ def telecharger_geojson_fichier(
     id_run: int | None = Query(None),
     statut_qualite: Literal[
         "ok", "localite_non_resolue", "geom_invalide",
-        "type_ouvrage_inconnu", "rejete", "doublon_suspect",
+        "type_alimentation_inconnu", "rejete", "doublon_suspect",
     ] | None = Query(None),
     type_alimentation: str | None = Query(None),
     nature_ouvrage: str | None = Query(None),

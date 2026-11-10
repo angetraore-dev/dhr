@@ -2,7 +2,11 @@
 Configuration Alembic.
 
 Filtre strict : ne compare QUE les tables de Base.metadata.
-Toute autre table (PostGIS, tiger, topology, spatial_ref_sys) est ignorée.
+Toute autre table (PostGIS, tiger, topology, spatial_ref_sys, alembic_version)
+est ignorée.
+
+Garde-fou : si Base.metadata.tables est vide, on lève une exception
+plutôt que de laisser Alembic ne rien faire silencieusement.
 """
 from __future__ import annotations
 
@@ -33,6 +37,18 @@ config.set_main_option("sqlalchemy.url", str(settings.database_url))
 # --- Liste blanche : uniquement nos tables ---
 NOS_TABLES = set(Base.metadata.tables.keys())
 
+if not NOS_TABLES:
+    raise RuntimeError(
+        "Base.metadata.tables est vide. "
+        "Vérifie que `from app import models` importe bien TOUS les modèles "
+        "(sinon Alembic ne créera aucune table silencieusement)."
+    )
+
+print(f"[alembic] Tables gérées par Alembic : {sorted(NOS_TABLES)}")
+
+# Tables explicitement exclues (en plus de celles hors NOS_TABLES)
+EXCLUDED_TABLES = {"alembic_version"}
+
 
 def include_object(object, name, type_, reflected, compare_to):
     """
@@ -40,6 +56,8 @@ def include_object(object, name, type_, reflected, compare_to):
     Toute autre table (PostGIS, tiger, topology, alembic_version, ...) est exclue.
     """
     if type_ == "table":
+        if name in EXCLUDED_TABLES:
+            return False
         return name in NOS_TABLES
     if type_ == "index":
         table = getattr(object, "table", None)

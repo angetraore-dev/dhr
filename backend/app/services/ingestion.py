@@ -376,7 +376,6 @@ def ingerer_feuille(
                 type_localite_brut=ligne.get("type_localite_brut"),
                 latitude_decimal=lat,
                 longitude_decimal=lon,
-                type_ouvrage_brut=type_ouvrage,
                 etat_ouvrage_brut=ligne.get("etat_ouvrage_brut"),
                 annee_projet=_to_int(ligne.get("annee_projet")),
                 bailleur_brut=ligne.get("bailleur_brut"),
