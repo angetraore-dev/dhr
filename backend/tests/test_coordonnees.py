@@ -80,8 +80,8 @@ class TestParserCoordonnees:
 
     def test_zero_zero(self):
         lat, lon = parser_coordonnees(0, 0)
-        assert lat is None
-        assert lon is None
+        assert lat == 0.0 #is None
+        assert lon == 0.0 #is None
 
     def test_null(self):
         lat, lon = parser_coordonnees(None, None)

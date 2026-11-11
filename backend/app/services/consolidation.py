@@ -137,12 +137,12 @@ def _map_etat(etat_ouvrage_brut: str | None) -> str:
     if not etat_ouvrage_brut:
         return "inconnu"
     norm = _normaliser(etat_ouvrage_brut)
-    if any(w in norm for w in ("fonctionnel", "bon", "marche", "utilise", "exploite")):
-        return "fonctionnel"
     if any(w in norm for w in ("panne", "mauvais", "dysfonction", "non fonctionnel")):
         return "en_panne"
     if any(w in norm for w in ("abandon", "detruit", "inexistant")):
         return "abandonne"
+    if any(w in norm for w in ("fonctionnel", "bon", "marche", "utilise", "exploite")):
+        return "fonctionnel"
     return "inconnu"
 
 

@@ -491,7 +491,7 @@ def telecharger_geojson_fichier(
     id_run: int | None = Query(None),
     statut_qualite: Literal[
         "ok", "localite_non_resolue", "geom_invalide",
-        "type_alimentation_inconnu", "rejete", "doublon_suspect",
+        "type_ouvrage_inconnu", "rejete", "doublon_suspect",
     ] | None = Query(None),
     type_alimentation: str | None = Query(None),
     nature_ouvrage: str | None = Query(None),

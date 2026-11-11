@@ -206,6 +206,7 @@ class TestConsolidationLigne:
     ):
         """B6.2 : nature/alim/réal tous inconnus → type_ouvrage_inconnu."""
         fichier, feuille = fichier_avec_feuille
+        feuille.nom_feuille = "FEUILLE_NEUTRE"
         run = IngestionRun(
             id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
         )
@@ -219,7 +220,7 @@ class TestConsolidationLigne:
             etat_ouvrage_brut=None,
         )
         # Pas de code ouvrage pour éviter le dédoublonnage
-        ligne.donnees_brutes = {}
+        ligne.donnees_brutes={}
         db.flush()
 
         stats = consolider_lignes_run(db, run.id_run)

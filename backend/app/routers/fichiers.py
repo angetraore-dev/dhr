@@ -3,31 +3,46 @@ Router des fichiers et feuilles.
 """
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.auth import require_api_key
+from app.auth import JWTUser, require_api_key, require_jwt
 from app.db import get_db
 from app.deps import OffsetPagination
-from app.models import Feuille, Fichier
+from app.models import Feuille, Fichier, IngestionRun
 from app.schemas.common import PaginatedOffset
-from app.schemas.fichiers import Fichier as FichierSchema, Feuille as FeuilleSchema
-from app.schemas.referentiels import Source as SourceSchema
-from app.auth import require_api_key, require_jwt, JWTUser
 from app.schemas.fichiers import (
+    Fichier as FichierSchema,
+    Feuille as FeuilleSchema,
     MappingProposalFeuille,
     MappingValidation,
 )
+from app.schemas.ingestion import IngestionRun as IngestionRunSchema
+from app.schemas.referentiels import Source as SourceSchema
 from app.services.mapping import (
     proposer_mapping_fichier,
     sauvegarder_mapping_feuille,
 )
+from app.services.run import creer_run, executer_pipeline
+from app.services.upload import uploader_fichier
+
+logger = logging.getLogger("dhr.fichiers")
 
 router = APIRouter(tags=["Fichiers"])
-
 
 # =====================================================================
 # FICHIERS

@@ -113,20 +113,21 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
 INDICATEURS_SANITAIRES: dict[str, list[re.Pattern]] = {
     "onchocercose": [
         re.compile(r"onchocercose", re.I),
-        re.compile(r"c[ée]cit[ée]\s*de\s*rivi[èe]re", re.I),
+        re.compile(r"c[ée]cit[ée][\s_]*de[\s_]*rivi[èe]re", re.I),
     ],
     "vers_de_guinee": [
-        re.compile(r"vers\s*de\s*guin[ée]e", re.I),
+        # Le (?:de[\s_]*)? rend le "de" optionnel
+        re.compile(r"vers[\s_]*(?:de[\s_]*)?guin[ée]e", re.I),
         re.compile(r"dracunculose", re.I),
-        re.compile(r"guin[ée]e\s*worm", re.I),
+        re.compile(r"guin[ée]e[\s_]*worm", re.I),
     ],
     "eau_salee": [
-        re.compile(r"eau\s*sal[ée]e", re.I),
+        re.compile(r"eau[\s_]*sal[ée]e", re.I),
         re.compile(r"salinit[ée]", re.I),
     ],
     "qualite_eau": [
-        re.compile(r"qualit[ée]\s*de\s*l['e]?\s*eau", re.I),
-        re.compile(r"qualit[ée]\s*eau", re.I),
+        re.compile(r"qualit[ée][\s_]*de[\s_]*l?['e]?[\s_]*eau", re.I),
+        re.compile(r"qualit[ée][\s_]*eau", re.I),
     ],
 }
 
@@ -140,6 +141,6 @@ SANITAIRE_MOTS_CLES: list[re.Pattern] = [
     re.compile(r"sal[ée]e", re.I),
     re.compile(r"maladie", re.I),
     re.compile(r"sant[ée]", re.I),
-    re.compile(r"qualit[ée]\s*(de\s*)?l?['e]?\s*eau", re.I),
+    re.compile(r"qualit[ée][\s_]*de?[\s_]*l?['e]?[\s_]*eau", re.I),
     re.compile(r"hydrique", re.I),
 ]

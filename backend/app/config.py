@@ -3,11 +3,12 @@ Configuration de l'application via variables d'environnement.
 
 Utilise pydantic-settings pour charger depuis .env et valider les types.
 Toutes les variables sont documentées dans .env.example.
+ PostgresDsn,
 """
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,8 +26,8 @@ class Settings(BaseSettings):
     env: Literal["development", "staging", "production"] = Field(default="development")
     log_level: Literal["debug", "info", "warning", "error"] = Field(default="info")
 
-    # --- Base de données ---
-    database_url: PostgresDsn = Field(
+    # --- Base de données PostgresDsn ---
+    database_url: str = Field(
         ...,
         description="URL SQLAlchemy, ex. postgresql+psycopg://user:pass@host:5432/db",
     )

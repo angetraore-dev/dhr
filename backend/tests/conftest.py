@@ -1,14 +1,15 @@
 """
 Fixtures pytest pour les tests backend.
 
-Stratégie :
-- Une base PostgreSQL éphémère par session de test (via pytest-postgresql).
-- Un schéma recréé à chaque test (transaction rollback après chaque test).
-- Un client HTTP FastAPI avec dépendances overridées pour utiliser la session de test.
+Stratégie (MVP) :
+- On utilise la MÊME base que l'application (`dhr`), pas une base séparée.
+- Les migrations sont déjà appliquées (le backend a démarré).
+- Chaque test ouvre une transaction et fait un rollback à la fin.
+  → Les données insérées par les fixtures ne polluent pas `dhr`.
 
 Prérequis :
-- PostgreSQL doit être accessible (via DATABASE_URL ou valeurs par défaut).
-- Les extensions PostGIS, pg_trgm, unaccent, fuzzystrmatch doivent être disponibles.
+- Le backend a démarré au moins une fois (migrations appliquées).
+- Les extensions PostGIS, pg_trgm, unaccent, fuzzystrmatch sont installées.
 """
 from __future__ import annotations
 
@@ -17,39 +18,31 @@ from collections.abc import Generator
 from pathlib import Path
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.config import get_settings
 from app.db import Base, get_db
 from app.main import app
 
 
 # =====================================================================
-# Configuration de la base de test
+# Configuration de la base (même base que l'application)
 # =====================================================================
 @pytest.fixture(scope="session")
 def test_db_url() -> str:
-    """Retourne l'URL de la base de test."""
-    # Priorité 1 : variable d'environnement dédiée
-    url = os.environ.get("TEST_DATABASE_URL")
-    if url:
-        return url
-
-    # Priorité 2 : construire depuis les variables PG standard
-    user = os.environ.get("POSTGRES_USER", "dhr")
-    password = os.environ.get("POSTGRES_PASSWORD", "dhr")
-    host = os.environ.get("POSTGRES_HOST", "localhost")
-    port = os.environ.get("POSTGRES_PORT", "5432")
-    db = os.environ.get("POSTGRES_TEST_DB", "dhr_test")
-    return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{db}"
+    """
+    URL de la base de test.
+    On utilise la même base que l'app (`dhr`), car les migrations y sont
+    déjà appliquées. Le rollback par test évite la pollution.
+    """
+    return str(get_settings().database_url)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def engine(test_db_url: str):
-    """Crée l'engine SQLAlchemy pour la base de test."""
+    """Crée l'engine SQLAlchemy pour la base `dhr`."""
     eng = create_engine(test_db_url, pool_pre_ping=True, future=True)
     yield eng
     eng.dispose()
@@ -58,39 +51,45 @@ def engine(test_db_url: str):
 @pytest.fixture(scope="session")
 def apply_migrations(engine) -> None:
     """
-    Applique les migrations Alembic une seule fois par session.
-    Utilise la config Alembic du projet.
+    Vérifie que les migrations sont déjà appliquées sur `dhr`.
+    Ne fait PAS de DROP SCHEMA (on ne veut pas détruire les données de dev).
+
+    Si les tables n'existent pas, on lève une erreur claire qui invite à
+    lancer `alembic upgrade head` sur `dhr`.
     """
-    backend_dir = Path(__file__).resolve().parents[1]
-    alembic_cfg = Config(str(backend_dir / "alembic.ini"))
-    alembic_cfg.set_main_option("script_location", str(backend_dir / "alembic"))
-    alembic_cfg.set_main_option("sqlalchemy.url", str(engine.url))
-
-    # Reset le schéma public
     with engine.connect() as conn:
-        conn.execute(text("DROP SCHEMA public CASCADE"))
-        conn.execute(text("CREATE SCHEMA public"))
-        conn.commit()
+        result = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+            )
+        ).scalar()
 
-    # Applique les migrations
-    command.upgrade(alembic_cfg, "head")
+    if result is None or result < 13:
+        raise RuntimeError(
+            f"La base `dhr` ne contient que {result} tables (attendu : 13). "
+            "Lance `alembic upgrade head` sur `dhr` avant de lancer les tests."
+        )
 
 
 @pytest.fixture()
 def db(engine, apply_migrations) -> Generator[Session, None, None]:
     """
     Session SQLAlchemy pour un test.
-    Rollback automatique après le test (isolation).
+    Ouvre une transaction, yield la session, puis ROLLBACK à la fin.
+    → Les données insérées par le test ne polluent pas `dhr`.
     """
     connection = engine.connect()
     transaction = connection.begin()
     session = sessionmaker(bind=connection, expire_on_commit=False)()
 
-    yield session
-
-    session.close()
-    transaction.rollback()
-    connection.close()
+    try:
+        yield session
+    finally:
+        session.close()
+        if transaction.is_active:
+            transaction.rollback()
+        connection.close()
 
 
 @pytest.fixture()
@@ -112,10 +111,20 @@ def client(db: Session) -> Generator[TestClient, None, None]:
 # =====================================================================
 @pytest.fixture()
 def source_onep(db: Session):
-    """Source ONEP (seedée normalement, mais on la récupère)."""
+    """
+    Source ONEP (seedée normalement par la migration).
+    Si elle n'existe pas, on la crée à la volée (mais elle devrait exister).
+    """
     from app.models import Source
     src = db.query(Source).filter(Source.nom == "ONEP").first()
-    assert src is not None, "Source ONEP absente (le seed n'a pas été appliqué)"
+    if src is None:
+        src = Source(
+            nom="ONEP",
+            type_source="public",
+            commentaire="Office National de l'Eau Potable",
+        )
+        db.add(src)
+        db.flush()
     return src
 
 
@@ -212,12 +221,10 @@ def fichier_avec_feuille(db: Session, source_onep):
 @pytest.fixture(scope="session")
 def excel_fixture_path() -> Path:
     """
-    Chemin vers le fichier Excel de test (créé dans tests/fixtures/).
-    Si le fichier n'existe pas, il est créé à la volée.
+    Chemin vers le fichier Excel de test.
+    Créé dans /tmp/ (toujours writable, même si tests/ est read-only).
     """
-    fixtures_dir = Path(__file__).parent / "fixtures"
-    fixtures_dir.mkdir(exist_ok=True)
-    path = fixtures_dir / "test_pmh.xlsx"
+    path = Path("/tmp/test_pmh.xlsx")
 
     if not path.exists():
         import openpyxl
@@ -225,18 +232,13 @@ def excel_fixture_path() -> Path:
         ws = wb.active
         ws.title = "PMH"
 
-        # Entête
         ws.append([
             "Localité", "Latitude", "Longitude", "Type_Ouvrage",
             "Etat", "Année", "Bailleur", "Usage_Ouvrage", "A_CGPE",
         ])
-        # 1 ligne valide
         ws.append(["LOC_TEST", 7.5, -5.5, "Forage ADM", "Fonctionnel", 2020, "ONEP", "PMH", "Oui"])
-        # 1 ligne sans coordonnées
         ws.append(["LOC_TEST", None, None, "PMH", "En panne", 2019, "ONEP", "PMH", "Non"])
-        # 1 ligne de total (rejetée)
         ws.append(["TOTAL", "", "", "", "", "", "", "", ""])
-        # 1 ligne vide
         ws.append([None, None, None, None, None, None, None, None, None])
 
         wb.save(path)

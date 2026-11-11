@@ -22,6 +22,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB:       ${POSTGRES_DB:-dhr}
+      POSTGRES_TEST_DB: ${POSTGRES_TEST_DB:-dhr_test}
       POSTGRES_USER:     ${POSTGRES_USER:-dhr}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dhr_dev_password}
       # Encodage et locale
@@ -31,6 +32,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+      - ./backend/init-multiple-databases.sh:/docker-entrypoint-initdb.d/02_init_test_db.sh:rw
       # Init : joue schema.sql au premier démarrage (base vide)
       # - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     healthcheck:
@@ -53,6 +55,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-dhr}:${POSTGRES_PASSWORD:-dhr_dev_password}@db:5432/${POSTGRES_DB:-dhr}
+      TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-dhr}:${POSTGRES_PASSWORD:-dhr_dev_password}@db:5432/${POSTGRES_TEST_DB:-dhr_test}
       API_KEY_READ:   ${API_KEY_READ:-dhr_dev_read_key_change_me}
       JWT_SECRET:     ${JWT_SECRET:-change_me_in_production}
       JWT_ALGORITHM:  HS256
@@ -69,7 +72,7 @@ services:
       - ./backend/alembic.ini:/app/alembic.ini:ro
       - ./backend/entrypoint.sh:/app/entrypoint.sh:ro
       - ./backend/scripts:/app/scripts:ro
-      - ./backend/tests:/app/tests:ro
+      - ./backend/tests:/app/tests:rw
       - uploads_data:/app/uploads
     depends_on:
       db:
