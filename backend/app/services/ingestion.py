@@ -97,9 +97,9 @@ def _serialiser_valeur(val: Any) -> Any:
     from datetime import date, datetime, time
     if val is None:
         return None
-    if isinstance(val, (datetime, date, time)):
+    if isinstance(val, datetime | date | time):
         return val.isoformat()
-    if isinstance(val, (int, float, str, bool)):
+    if isinstance(val, int | float | str | bool):
         return val
     return str(val)
 
@@ -159,7 +159,8 @@ def _detecter_header_row(ws, max_scan: int = 30) -> int:
     best_score = 0
 
     for row_idx in range(1, min(max_scan + 1, (ws.max_row or 1) + 1)):
-        row = list(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True))[0]
+        # row = list(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True))[0]
+        row = next(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True))
         non_vides = [str(v).strip() for v in row if v is not None and str(v).strip() != ""]
 
         if len(non_vides) < 5:
@@ -188,7 +189,7 @@ def detecter_feuilles(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Impossible d'ouvrir le fichier Excel : {e}",
-        )
+        ) from e
     try:
         feuilles: list[FeuilleInfo] = []
         for idx, nom in enumerate(wb.sheetnames, start=1):
@@ -322,13 +323,12 @@ def _extraire_lignes(
         for col_idx, champ in mapping.colonnes_mappees.items():
             if col_idx < len(row):
                 val = row[col_idx]
-                if val is not None and str(val).strip() != "":
-                    if (
-                        champ not in record
-                        or record[champ] is None
-                        or str(record[champ]).strip() == ""
-                    ):
-                        record[champ] = val
+                if val is not None and str(val).strip() != "" and (
+                    champ not in record
+                    or record[champ] is None
+                    or str(record[champ]).strip() == ""
+                ):
+                    record[champ] = val
 
         # Conversion coordonnées
         lat_brut = record.get("latitude_decimal")
@@ -395,8 +395,8 @@ def ingerer_feuille(
         from app.services.mapping import charger_mapping_pour_ingestion
         mapping_colonnes = charger_mapping_pour_ingestion(db, feuille, entetes, header_row)
 
-        from app.services.ingestion import MappingFeuille as MF
-        mapping = MF(
+        from app.services.ingestion import MappingFeuille as MappingFeuilleSchema
+        mapping = MappingFeuilleSchema(
             index_feuille=feuille.index_feuille,
             header_row=header_row,
             colonnes_mappees=mapping_colonnes,
@@ -484,7 +484,6 @@ def ingerer_fichier(
     IMPORTANT (I2) : ne met PAS à jour `fichier.statut`.
     C'est `run.py` qui le fait en fin de pipeline (cf. décision A3).
     """
-    from datetime import datetime, timezone
 
     feuilles = db.scalars(
         select(Feuille).where(Feuille.id_fichier == fichier.id_fichier)
@@ -518,7 +517,6 @@ def ingerer_fichier(
                 "nb_rejetees": res["nb_rejetees"],
             })
         except Exception as e:
-            import traceback
             db.rollback()
             logger.exception("Erreur feuille %s : %s", feuille_nom, e)
             feuille = db.get(Feuille, feuille_id)

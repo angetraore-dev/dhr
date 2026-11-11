@@ -24,12 +24,9 @@ from app.models import (
     RefGeoAdmin,
 )
 from app.schemas.common import PaginatedCursor
-from app.schemas.ouvrages import (
-    CGPE as CGPESchema,
-    CGPESummary,
-    FinancementResume,
-    Ouvrage as OuvrageSchema,
-)
+from app.schemas.ouvrages import CGPE as CGPESchema  # noqa: N811
+from app.schemas.ouvrages import CGPESummary, FinancementResume
+from app.schemas.ouvrages import Ouvrage as OuvrageSchema
 from app.schemas.referentiels import LocaliteResume
 from app.services.export import (
     export_ouvrages_csv,
@@ -43,7 +40,6 @@ router = APIRouter(
     dependencies=[Depends(require_api_key)],
 )
 
-
 # =====================================================================
 # Helpers
 # =====================================================================
@@ -54,11 +50,11 @@ def _encode_cursor(id_ouvrage: int) -> str:
 def _decode_cursor(cursor: str) -> int:
     try:
         return int(base64.urlsafe_b64decode(cursor.encode()).decode())
-    except Exception:
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Curseur invalide",
-        )
+        ) from e
 
 
 def _parse_geojson(geojson_str: str | None) -> dict[str, Any] | None:

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import re
 
-
 # Champs cibles standard (mappables depuis une colonne Excel).
 # Aligné sur la Bible § 2.3.4 et § 3.2.1.
 # L'ordre des clés n'a pas d'importance, mais le premier match gagne.

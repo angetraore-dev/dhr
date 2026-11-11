@@ -15,7 +15,7 @@ import re
 import unicodedata
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models import Feuille, LigneIngeree, Ouvrage
@@ -199,7 +199,7 @@ def _extraire_code_ouvrage(donnees_brutes: dict[str, Any] | None) -> str | None:
         if key in donnees_brutes:
             return str(donnees_brutes[key])
     for k, v in donnees_brutes.items():
-        if isinstance(v, (str, int)) and k and "code" in k.lower() and "ouvrage" in k.lower():
+        if isinstance(v, str | int) and k and "code" in k.lower() and "ouvrage" in k.lower():
             return str(v)
     return None
 

@@ -22,7 +22,7 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.models import Localite, LigneIngeree
+from app.models import LigneIngeree
 
 logger = logging.getLogger("dhr.rapprochement")
 

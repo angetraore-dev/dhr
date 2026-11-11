@@ -14,7 +14,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy import func, literal_column, or_, select
-from sqlalchemy.orm import Session, selectinload, aliased
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.auth import require_api_key
 from app.db import get_db

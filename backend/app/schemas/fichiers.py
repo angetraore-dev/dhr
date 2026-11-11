@@ -4,12 +4,13 @@ Schémas des fichiers et feuilles.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from app.schemas.referentiels import Source
+
 
 # ----- Fichier -----
 class Fichier(BaseModel):

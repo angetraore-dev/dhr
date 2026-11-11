@@ -16,8 +16,14 @@ from app.models import Localite, RefGeoAdmin, Source
 from app.schemas.common import PaginatedOffset
 from app.schemas.referentiels import (
     Localite as LocaliteSchema,
+)
+from app.schemas.referentiels import (
     LocaliteResume,
+)
+from app.schemas.referentiels import (
     RefGeoAdmin as RefGeoAdminSchema,
+)
+from app.schemas.referentiels import (
     Source as SourceSchema,
 )
 

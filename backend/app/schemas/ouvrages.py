@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.schemas.geo import GeoJSONPoint
 from app.schemas.referentiels import LocaliteResume
 
-
 # ----- Enums (miroir des CHECK SQL) -----
 NatureOuvrage = Literal["puits", "forage", "inconnu"]
 TypeAlimentation = Literal["PMH", "HVA", "PEA", "HV", "AUTRE"]

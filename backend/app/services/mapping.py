@@ -17,13 +17,14 @@ from pathlib import Path
 import openpyxl
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
-from app.services.patterns import COLUMN_PATTERNS
+
 from app.models import Feuille, Fichier, MappingFeuille
 from app.schemas.fichiers import (
     MappingColonne,
     MappingProposalFeuille,
     MappingValidationColonne,
 )
+from app.services.patterns import COLUMN_PATTERNS
 
 logger = logging.getLogger("dhr.mapping")
 
@@ -49,7 +50,8 @@ def _detecter_header_row(ws, max_scan: int = 30) -> int:
     best_row = 1
     best_score = 0
     for row_idx in range(1, min(max_scan + 1, (ws.max_row or 1) + 1)):
-        row = list(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True))[0]
+        # row = list(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True))[0]
+        row = next(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True))
         non_vides = [str(v).strip() for v in row if v is not None and str(v).strip() != ""]
         if len(non_vides) < 5:
             continue
@@ -82,7 +84,7 @@ def _proposer_mapping_feuille(
     champs_deja_mappes: set[str] = set()
     colonnes: list[MappingColonne] = []
 
-    for col_idx, entete in enumerate(entetes):
+    for _col_idx, entete in enumerate(entetes):
         if not entete or not entete.strip():
             continue
 
@@ -159,7 +161,7 @@ def proposer_mapping_fichier(
             mapping_valide = db.scalars(
                 select(MappingFeuille).where(
                     MappingFeuille.id_feuille == feuille.id_feuille,
-                    MappingFeuille.valide_par_utilisateur == True,
+                    MappingFeuille.valide_par_utilisateur is True,
                 )
             ).all()
 
@@ -211,7 +213,7 @@ def sauvegarder_mapping_feuille(
     db.execute(
         delete(MappingFeuille).where(
             MappingFeuille.id_feuille == id_feuille,
-            MappingFeuille.valide_par_utilisateur == True,
+            MappingFeuille.valide_par_utilisateur is True,
         )
     )
 
@@ -244,7 +246,7 @@ def sauvegarder_mapping_feuille(
     mapping = db.scalars(
         select(MappingFeuille).where(
             MappingFeuille.id_feuille == id_feuille,
-            MappingFeuille.valide_par_utilisateur == True,
+            MappingFeuille.valide_par_utilisateur is True,
         )
     ).all()
 
@@ -284,7 +286,7 @@ def charger_mapping_pour_ingestion(
     mappings = db.scalars(
         select(MappingFeuille).where(
             MappingFeuille.id_feuille == feuille.id_feuille,
-            MappingFeuille.valide_par_utilisateur == True,
+            MappingFeuille.valide_par_utilisateur is True,
         )
     ).all()
 

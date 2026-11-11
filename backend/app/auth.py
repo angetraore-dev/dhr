@@ -4,10 +4,10 @@ Authentification : API key (lecture) + JWT Bearer (écriture).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, APIKeyHeader
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
 from app.config import get_settings
@@ -36,7 +36,7 @@ def create_access_token(sub: str, role: str = "ingesteur", expires_min: int | No
     """Crée un JWT pour un utilisateur (écriture)."""
     if expires_min is None:
         expires_min = settings.jwt_expire_min
-    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_min)
+    expire = datetime.now(UTC) + timedelta(minutes=expires_min)
     payload = {"sub": sub, "role": role, "exp": expire}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -60,7 +60,7 @@ def decode_token(token: str) -> JWTUser:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token JWT invalide ou expiré",
-        )
+        ) from e
 
 
 # --- Dépendances FastAPI ---

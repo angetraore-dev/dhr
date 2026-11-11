@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
-import openpyxl
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -63,8 +63,8 @@ def uploader_fichier(
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     # Nom unique : timestamp + nom original
-    from datetime import datetime, timezone
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    from datetime import datetime
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     nom_stockage = f"{ts}_{nom_original}"
     chemin = upload_dir / nom_stockage
 
@@ -94,7 +94,7 @@ def uploader_fichier(
         feuilles_info = detecter_feuilles(chemin)
     except Exception as e:
         chemin.unlink(missing_ok=True)
-        raise HTTPException(400, f"Impossible d'analyser le fichier Excel : {e}")
+        raise HTTPException(400, f"Impossible d'analyser le fichier Excel : {e}") from e
 
     # Crée le fichier
     fichier = Fichier(

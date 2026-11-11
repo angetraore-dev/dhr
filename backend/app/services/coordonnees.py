@@ -16,7 +16,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 # Bornes WGS84
 LAT_MIN, LAT_MAX = -90.0, 90.0
 LON_MIN, LON_MAX = -180.0, 180.0
@@ -57,7 +56,7 @@ def parser_une_coordonnee(brut: Any, est_latitude: bool) -> float | None:
         return None
 
     # Si c'est déjà un float
-    if isinstance(brut, (int, float)):
+    if isinstance(brut, int | float):
         val = float(brut)
         if est_latitude and _is_valid_lat(val):
             return val

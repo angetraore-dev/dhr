@@ -5,18 +5,22 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import require_api_key
 from app.db import get_db
-from app.deps import CursorPagination, OffsetPagination
+from app.deps import CursorPagination
 from app.models import IngestionRun, LigneIngeree
-from app.schemas.common import PaginatedCursor, PaginatedOffset
+from app.schemas.common import PaginatedCursor
 from app.schemas.ingestion import (
     IngestionRun as IngestionRunSchema,
+)
+from app.schemas.ingestion import (
     LigneIngeree as LigneIngereeSchema,
+)
+from app.schemas.ingestion import (
     LigneIngereeAvecBrut,
 )
 
@@ -63,8 +67,8 @@ def list_lignes_run(
         try:
             last_id = int(pagination.cursor)
             stmt = stmt.where(LigneIngeree.id_ligne > last_id)
-        except ValueError:
-            raise HTTPException(400, "Curseur invalide")
+        except ValueError as e:
+            raise HTTPException(400, "Curseur invalide") from e
 
     stmt = stmt.order_by(LigneIngeree.id_ligne).limit(pagination.limit + 1)
     rows = db.scalars(stmt).all()
@@ -110,8 +114,8 @@ def list_lignes_feuille(
         try:
             last_id = int(pagination.cursor)
             stmt = stmt.where(LigneIngeree.id_ligne > last_id)
-        except ValueError:
-            raise HTTPException(400, "Curseur invalide")
+        except ValueError as e:
+            raise HTTPException(400, "Curseur invalide") from e
 
     stmt = stmt.order_by(LigneIngeree.id_ligne).limit(pagination.limit + 1)
     rows = db.scalars(stmt).all()

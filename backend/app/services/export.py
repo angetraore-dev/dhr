@@ -20,7 +20,7 @@ from __future__ import annotations
 import csv
 import io
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import xlsxwriter
@@ -219,7 +219,7 @@ def _check_export_limit(db: Session, filters: dict[str, Any]) -> None:
 
 
 def _filename(extension: str) -> str:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
     return f"ouvrages_{today}.{extension}"
 
 
@@ -345,7 +345,7 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     # --- CGPE ---
     stmt = (
         select(
-            func.count().filter(CGPE.existe == True, CGPE.statut == "fonctionnel"),
+            func.count().filter(CGPE.existe is True, CGPE.statut == "fonctionnel"),
             func.count(CGPE.id_cgpe),
         )
         .select_from(CGPE)
@@ -423,7 +423,7 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
     ws.set_row(row, 24)
     row += 1
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     ws.write(row, 0, f"Date d'export : {now}", fmt_label)
     row += 1
     ws.write(row, 0, f"Filtres : {_format_filters(kpis['filtres'])}", fmt_label)

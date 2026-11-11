@@ -26,8 +26,12 @@ from app.deps import OffsetPagination
 from app.models import Feuille, Fichier, IngestionRun
 from app.schemas.common import PaginatedOffset
 from app.schemas.fichiers import (
-    Fichier as FichierSchema,
     Feuille as FeuilleSchema,
+)
+from app.schemas.fichiers import (
+    Fichier as FichierSchema,
+)
+from app.schemas.fichiers import (
     MappingProposalFeuille,
     MappingValidation,
 )
@@ -182,7 +186,7 @@ def get_mapping_proposal(id: int, db: Session = Depends(get_db)):
     try:
         return proposer_mapping_fichier(db, id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.put(
@@ -218,16 +222,11 @@ def put_mapping(
         return result
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 # =====================================================================
 # UPLOAD
 # =====================================================================
-from fastapi import UploadFile, File, Form, BackgroundTasks
-from app.services.upload import uploader_fichier
-from app.services.run import creer_run, executer_pipeline
-from app.models import IngestionRun
-from app.schemas.ingestion import IngestionRun as IngestionRunSchema
 
 
 @router.post(

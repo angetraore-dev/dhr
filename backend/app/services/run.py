@@ -8,7 +8,7 @@ IMPORTANT (Bible § 3.2.4, décision A3) :
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
@@ -117,12 +117,12 @@ def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
         # Mise à jour du run
         total = resultat_ingestion["total_stockees"]
         run.statut = "termine" if total > 0 else "erreur"
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
         db.flush()
 
         # Mise à jour du fichier (I2 : c'est ici, pas dans ingestion.py)
         fichier.statut = _determiner_statut_fichier(db, fichier)
-        fichier.date_ingestion = datetime.now(timezone.utc)
+        fichier.date_ingestion = datetime.now(UTC)
         db.flush()
 
         return {
@@ -140,7 +140,7 @@ def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
         if run is not None:
             run.statut = "erreur"
             run.message = str(e)
-            run.finished_at = datetime.now(timezone.utc)
+            run.finished_at = datetime.now(UTC)
             db.flush()
         # Fichier en erreur aussi
         fichier = db.get(Fichier, fichier.id_fichier if fichier else None)
