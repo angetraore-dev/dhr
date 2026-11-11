@@ -53,6 +53,10 @@ docker compose exec -T backend mypy app/services app/models
 ### RESET COMPLET
 
 ```bash
+
+# On vide les tables enfants et parents en cascade, en remettant les compteurs d'ID à 1
+TRUNCATE TABLE ouvrage, ouvrage_projet, cgpe, ligne_ingeree, ingestion_run, feuille, fichier RESTART IDENTITY CASCADE;
+
 # Redémarrer le backend (recharge le code)
 docker compose restart backend
 

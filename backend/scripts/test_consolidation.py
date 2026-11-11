@@ -1,9 +1,12 @@
 """
 Consolidation : ligne_ingeree -> ouvrage.
-Usage : python /app/scripts/consolidation.py <id_run>
-docker compose exec backend python -u /app/scripts/consolidation.py 1 2>&1
+docker compose exec backend python -u /app/scripts/test_consolidation.py 1 2>&1
 """
+from __future__ import annotations
+
 import sys
+import traceback
+
 sys.path.insert(0, "/app")
 
 from sqlalchemy import func, select
@@ -23,7 +26,7 @@ def main(id_run: int) -> None:
         stats = consolider_lignes_run(db, id_run)
         db.commit()
 
-        print(f"\nRésultat :")
+        print("\nRésultat :")
         print(f"  Lignes traitées : {stats['total_lignes']}")
         print(f"  Ouvrages créés : {stats['ouvrages_crees']}")
         print(f"  Ouvrages mis à jour : {stats['ouvrages_mis_a_jour']}")
@@ -39,12 +42,11 @@ def main(id_run: int) -> None:
                 LigneIngeree.id_ouvrage_consolide.isnot(None),
             )
         )
-        print(f"\nEn base :")
+        print("\nEn base :")
         print(f"  Total ouvrages : {total_ouvrages}")
         print(f"  Lignes consolidées (run {id_run}) : {total_lignes_consolidees}")
 
-    except Exception as e:
-        import traceback
+    except Exception:
         traceback.print_exc()
         db.rollback()
     finally:

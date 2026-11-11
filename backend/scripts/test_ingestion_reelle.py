@@ -2,6 +2,8 @@
 Test d'ingestion réelle : parse + insère en base.
 Usage : docker compose exec backend python -u /app/scripts/test_ingestion_reelle.py /app/tests/fixtures/fichier1.xlsx 2>&1
 """
+from __future__ import annotations
+
 import sys
 import traceback
 from pathlib import Path
@@ -76,30 +78,32 @@ def test(chemin: str) -> None:
         print(f"[5] Run créé : id={run.id_run}", flush=True)
 
         # --- Ingestion ---
-        print(f"[6] Lancement ingerer_fichier...", flush=True)
+        print("[6] Lancement ingerer_fichier...", flush=True)
         resultat = ingerer_fichier(db, fichier, run, mode="complet")
         print(f"[7] Ingestion terminée : {resultat}", flush=True)
 
         # --- Commit ---
         db.commit()
-        print(f"[8] Commit OK", flush=True)
+        print("[8] Commit OK", flush=True)
 
         # --- Vérifications ---
-        total = db.scalar(select(func.count()).select_from(LigneIngeree).where(
+        db.refresh(fichier)
+        total_stockees = db.scalar(select(func.count()).select_from(LigneIngeree).where(
             LigneIngeree.id_run == run.id_run
-        ))
-        print(f"\n[9] Total lignes en base (run {run.id_run}) : {total}", flush=True)
+        )) or 0
+        print(f"\n[9] Total lignes stockées en base (run {run.id_run}) : {total_stockees}", flush=True)
+        print(f"    Lignes totales déclarées (Bible C4/B5) : {fichier.nb_lignes_total}", flush=True)
 
         avec_coords = db.scalar(select(func.count()).select_from(LigneIngeree).where(
             LigneIngeree.id_run == run.id_run,
             LigneIngeree.latitude_decimal.isnot(None),
             LigneIngeree.longitude_decimal.isnot(None),
-        ))
-        if total:
-            print(f"[10] Avec coordonnées : {avec_coords} ({avec_coords/total*100:.1f}%)", flush=True)
+        )) or 0
+        if total_stockees:
+            print(f"[10] Qualité : {avec_coords} lignes valides sur {total_stockees} stockées ({avec_coords/total_stockees*100:.1f}%)", flush=True)
 
         # 3 exemples
-        print(f"\n[11] 3 premiers enregistrements :", flush=True)
+        print("\n[11] 3 premiers enregistrements :", flush=True)
         lignes = db.scalars(select(LigneIngeree).where(
             LigneIngeree.id_run == run.id_run
         ).limit(3)).all()

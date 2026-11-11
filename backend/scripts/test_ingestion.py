@@ -2,13 +2,15 @@
 Test manuel d'ingestion : parse un fichier Excel sans passer par l'API.
 Usage : python /app/scripts/test_ingestion.py /app/tests/fixtures/fichier1.xlsx [header_row]
 """
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
 # Ajouter /app au PYTHONPATH (pour import app.*)
 sys.path.insert(0, "/app")
 
-from app.services.ingestion import detecter_feuilles, _analyser_entetes
+from app.services.ingestion import _analyser_entetes, detecter_feuilles
 
 
 def test(chemin: str, header_row_force: int | None = None) -> None:

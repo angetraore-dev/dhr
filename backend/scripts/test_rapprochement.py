@@ -2,7 +2,11 @@
 Test du rapprochement des localités sur un run.
 Usage : python /app/scripts/test_rapprochement.py <id_run>
 """
+from __future__ import annotations
+
 import sys
+import traceback
+
 sys.path.insert(0, "/app")
 
 from sqlalchemy import func, select
@@ -22,7 +26,7 @@ def main(id_run: int) -> None:
         stats = rapprocher_lignes_run(db, id_run, seuil_trigram=0.6)
         db.commit()
 
-        print(f"\nRésultat du rapprochement :")
+        print("\nRésultat du rapprochement :")
         print(f"  Total lignes : {stats['total']}")
         print(f"  Exact match : {stats['exact']}")
         print(f"  Alias : {stats['alias']}")
@@ -36,12 +40,11 @@ def main(id_run: int) -> None:
             .where(LigneIngeree.id_run == id_run)
             .group_by(LigneIngeree.statut_qualite)
         ).all()
-        print(f"\nStatuts en base :")
+        print("\nStatuts en base :")
         for statut, count in rows:
             print(f"  {statut} : {count}")
 
-    except Exception as e:
-        import traceback
+    except Exception:
         traceback.print_exc()
         db.rollback()
     finally:

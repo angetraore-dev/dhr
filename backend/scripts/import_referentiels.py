@@ -1,8 +1,12 @@
 """
 Import des localités depuis fichier1.xlsx (feuille 'Localités').
-Usage : docker compose exec backend python -u /app/scripts/import_localites.py /app/tests/fixtures/fichier1.xlsx
+Usage : docker compose exec backend python -u /app/scripts/import_referentiels.py /app/tests/fixtures/fichier1.xlsx
 """
+from __future__ import annotations
+
 import sys
+import traceback
+
 sys.path.insert(0, "/app")
 
 from app.db import SessionLocal
@@ -19,14 +23,13 @@ def main(chemin: str) -> None:
         stats = importer_localites(db, chemin, nom_feuille="Localités", header_row=1)
         db.commit()
 
-        print(f"\nRésultat :")
+        print("\nRésultat :")
         print(f"  Lignes traitées : {stats['nb_lignes']}")
         print(f"  Localités créées : {stats['nb_localites_creees']}")
         print(f"  Localités existantes : {stats['nb_localites_existantes']}")
         print(f"  Erreurs : {stats['nb_erreurs']}")
 
-    except Exception as e:
-        import traceback
+    except Exception:
         traceback.print_exc()
         db.rollback()
     finally:

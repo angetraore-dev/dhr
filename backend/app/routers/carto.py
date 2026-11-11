@@ -1,28 +1,27 @@
 """
 Router carto : endpoints GeoJSON pour l'UI cartographique.
 
+Mode Fichier : lit la vue v_points_par_fichier (Bible § 2.2.D).
+Mode Tous    : lit ouvrage + v_points_consolides (jointures manuelles).
+
 On utilise ST_AsGeoJSON() côté SQL pour éviter les problèmes de conversion
 WKB (les colonnes générées geom ne sont pas déclarées en ORM).
 """
 from __future__ import annotations
 
 import json
-import re
-import unicodedata
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
-from sqlalchemy import func, literal_column, or_, select
-from sqlalchemy.orm import Session, aliased, selectinload
+from sqlalchemy import exists, func, literal_column, select, text
+from sqlalchemy.orm import Session, selectinload, aliased
 
 from app.auth import require_api_key
 from app.db import get_db
 from app.deps import OuvrageFilters
 from app.models import (
-    Feuille,
     Fichier,
-    LigneIngeree,
     Localite,
     Ouvrage,
     OuvrageProjet,
@@ -36,25 +35,21 @@ router = APIRouter(
     dependencies=[Depends(require_api_key)],
 )
 
+# Types autorisés (alignés sur les CHECK SQL / Literal des schémas)
+TypeAlimentation = Literal["PMH", "HVA", "PEA", "HV", "AUTRE"]
+NatureOuvrage = Literal["puits", "forage", "inconnu"]
+RealisationPar = Literal["public", "prive", "inconnu"]
+StatutQualite = Literal[
+    "ok", "localite_non_resolue", "geom_invalide",
+    "type_ouvrage_inconnu", "rejete", "doublon_suspect",
+]
+
 
 # =====================================================================
 # Helpers
 # =====================================================================
-def _normaliser(texte: str | None) -> str:
-    """Miroir de consolidation._normaliser — dupliqué localement pour ne pas
-    coupler carto.py au service de consolidation."""
-    if texte is None:
-        return ""
-    texte = str(texte).strip().lower()
-    texte = "".join(
-        c for c in unicodedata.normalize("NFD", texte)
-        if unicodedata.category(c) != "Mn"
-    )
-    texte = re.sub(r"[\s\-_]+", " ", texte).strip()
-    return texte
-
-
 def _parse_geojson_geom(geojson_str: str | None) -> dict[str, Any] | None:
+    """Parse une chaîne GeoJSON en dict {type, coordinates}."""
     if not geojson_str:
         return None
     try:
@@ -67,107 +62,54 @@ def _parse_geojson_geom(geojson_str: str | None) -> dict[str, Any] | None:
         return None
 
 
-def _infer_type_alimentation(nom_feuille: str | None) -> str:
-    """Déduit le type d'alimentation du nom de feuille.
-    Doit rester cohérent avec consolidation._map_alimentation
-    (mais ici, pas de fallback sur type_alimentation_brut : on n'a que la feuille)."""
-    nom_upper = (nom_feuille or "").upper()
-    if "PMH" in nom_upper:
-        return "PMH"
-    if "HVA" in nom_upper:
-        return "HVA"
-    if "PEA" in nom_upper:
-        return "PEA"
-    if "HV" in nom_upper:
-        return "HV"
-    return "AUTRE"
+def _row_to_feature_fichier(row: Any) -> dict[str, Any] | None:
+    """Convertit une ligne de v_points_par_fichier en Feature GeoJSON.
 
-
-def _infer_nature_et_realisation(
-    donnees_brutes: dict[str, Any] | None,
-) -> tuple[str, str]:
-    """Extrait nature_ouvrage et realisation_par depuis les données brutes.
-    Aligné sur consolidation._map_nature / _map_realisation."""
-    nature_ouvrage = "inconnu"
-    realisation_par = "inconnu"
-    if not donnees_brutes:
-        return nature_ouvrage, realisation_par
-
-    for k, v in donnees_brutes.items():
-        if not k or not v:
-            continue
-        k_norm = _normaliser(k)
-        v_norm = _normaliser(str(v))
-
-        # Nature : clé "type d'ouvrage"
-        if "type d ouvrage" in k_norm or "type d'ouvrage" in k_norm:
-            if "forage" in v_norm:
-                nature_ouvrage = "forage"
-            elif "puits" in v_norm:
-                nature_ouvrage = "puits"
-
-        # Réalisation : clé "type de forage"
-        # Note : deux `if` (pas `elif`) pour qu'une même clé puisse
-        # renseigner les deux si elle contient les deux expressions.
-        if "type de forage" in k_norm:
-            if "public" in v_norm or "administratif" in v_norm:
-                realisation_par = "public"
-            elif "prive" in v_norm:
-                realisation_par = "prive"
-
-    return nature_ouvrage, realisation_par
-
-
-def _ligne_to_feature(
-    ligne: LigneIngeree,
-    fichier: Fichier,
-    geojson_str: str | None,
-    nom_feuille: str | None,
-) -> dict[str, Any] | None:
-    """Convertit une ligne ingérée en Feature GeoJSON (mode Fichier/Run/Feuille)."""
-    geom = _parse_geojson_geom(geojson_str)
+    Les propriétés exposent le BRUT (mode Par fichier), pas le métier consolidé.
+    """
+    m = row._mapping
+    geom = _parse_geojson_geom(m["geojson"])
     if geom is None:
         return None
 
-    type_alimentation = _infer_type_alimentation(nom_feuille)
-    nature_ouvrage, realisation_par = _infer_nature_et_realisation(
-        ligne.donnees_brutes
-    )
-
     return {
         "type": "Feature",
-        "id": str(ligne.id_ligne),
+        "id": str(m["id_ligne"]),
         "geometry": geom,
         "properties": {
-            "id_ligne": ligne.id_ligne,
-            "id_fichier": fichier.id_fichier,
-            "nom_fichier": fichier.nom_fichier_original,
-            "type_alimentation": type_alimentation,
-            "nature_ouvrage": nature_ouvrage,
-            "realisation_par": realisation_par,
-            "statut_qualite": ligne.statut_qualite,
-            "localite": ligne.localite_brute,
-            "donnees_brutes": ligne.donnees_brutes or {},
-            "details": None,
+            "id_ligne": m["id_ligne"],
+            "id_fichier": m["id_fichier"],
+            "nom_fichier": m["nom_fichier_original"],
+            "id_feuille": m["id_feuille"],
+            "nom_feuille": m["nom_feuille"],
+            "num_ligne_source": m["num_ligne_source"],
+            "type_ouvrage_brut": m["type_ouvrage_brut"],
+            "etat_ouvrage_brut": m["etat_ouvrage_brut"],
+            "annee_projet": m["annee_projet"],
+            "bailleur_brut": m["bailleur_brut"],
+            "type_financement_brut": m["type_financement_brut"],
+            "statut_qualite": m["statut_qualite"],
+            "latitude_decimal": m["latitude_decimal"],
+            "longitude_decimal": m["longitude_decimal"],
         },
     }
 
 
-def _ouvrage_to_feature(
-    o: Ouvrage,
-    geojson_str: str | None,
-    localite_metadata: dict | None = None,
-    cgpe_metadata: dict | None = None,
-) -> dict[str, Any] | None:
-    """Convertit un ouvrage en Feature GeoJSON (mode Tous)."""
-    geom = _parse_geojson_geom(geojson_str)
+def _row_to_feature_ouvrage(row: Any) -> dict[str, Any] | None:
+    """Convertit une ligne (Ouvrage, geojson) en Feature GeoJSON (mode Tous)."""
+    o: Ouvrage = row[0]
+    geom = _parse_geojson_geom(row[1])
     if geom is None:
         return None
 
+    loc_meta = o.localite.metadata_ if o.localite else {}
+    cgpe_meta = o.cgpes[0].metadata_ if o.cgpes else {}
+
     details = {
         "ouvrage": o.metadata_ or {},
-        "localite": localite_metadata or {},
-        "cgpe": cgpe_metadata or {},
+        "localite": loc_meta or {},
+        "cgpe": cgpe_meta or {},
+        "qualite_eau": o.qualite_eau or {},
     }
 
     return {
@@ -183,37 +125,46 @@ def _ouvrage_to_feature(
             "etat": o.etat,
             "annee_realisation": o.annee_realisation,
             "localite": o.localite.nom_usage if o.localite else None,
+            "qualite_eau": o.qualite_eau,
             "details": details,
         },
     }
 
 
 # =====================================================================
-# Helpers de filtres JSONB (mode Fichier)
+# MODE FICHIER (v_points_par_fichier)
 # =====================================================================
-def _contains_json_value(column_expr, value: str):
-    """Filtre 'donnees_brutes contient cette valeur textuelle'.
+# Colonnes exposées par la vue, dans l'ordre du SELECT.
+_VUE_FICHIER_SELECT = """
+    SELECT
+        v.id_fichier,
+        v.nom_fichier_original,
+        v.date_ingestion,
+        v.source,
+        v.id_feuille,
+        v.nom_feuille,
+        v.id_ligne,
+        v.num_ligne_source,
+        v.type_ouvrage_brut,
+        v.etat_ouvrage_brut,
+        v.annee_projet,
+        v.bailleur_brut,
+        v.type_financement_brut,
+        v.statut_qualite,
+        v.latitude_decimal,
+        v.longitude_decimal,
+        ST_AsGeoJSON(v.geom) AS geojson
+    FROM v_points_par_fichier v
+    WHERE v.id_fichier = :id_fichier
+"""
 
-    Note : utilise `::text` + contains → pas indexable via l'index GIN
-    JSONB. Acceptable pour le MVP (faible volumétrie). Pour une V2, passer
-    à `jsonb_path_exists` ou stocker des champs normalisés dédiés.
-    """
-    return func.lower(literal_column(f"{column_expr}::text")).contains(
-        f'"{value}"'
-    )
 
-
-# =====================================================================
-# MODE FICHIER / RUN / FEUILLE
-# =====================================================================
 def _build_feature_collection_fichier(
     id_fichier: int,
     id_feuille: int | None,
     id_run: int | None,
-    statut_qualite: str | None,
-    type_alimentation: str | None,
-    nature_ouvrage: str | None,
-    realisation_par: str | None,
+    statut_qualite: StatutQualite | None,
+    type_alimentation: TypeAlimentation | None,
     localite: str | None,
     region: str | None,
     departement: str | None,
@@ -227,111 +178,78 @@ def _build_feature_collection_fichier(
             detail=f"Fichier {id_fichier} introuvable",
         )
 
-    feuilles = db.scalars(
-        select(Feuille).where(Feuille.id_fichier == id_fichier)
-    ).all()
-
-    if not feuilles:
-        return {
-            "type": "FeatureCollection",
-            "features": [],
-            "meta": {
-                "id_fichier": id_fichier,
-                "nom_fichier": fichier.nom_fichier_original,
-                "count": 0,
-            },
-        }
-
-    feuilles_ids = [f.id_feuille for f in feuilles]
-    feuille_noms = {f.id_feuille: f.nom_feuille for f in feuilles}
-
-    stmt = select(
-        LigneIngeree,
-        func.ST_AsGeoJSON(literal_column("ligne_ingeree.geom")).label("geojson"),
-    ).where(LigneIngeree.id_feuille.in_(feuilles_ids))
+    # Construction dynamique du WHERE (paramétré, pas d'injection).
+    where_parts: list[str] = []
+    params: dict[str, Any] = {"id_fichier": id_fichier}
 
     if id_feuille is not None:
-        stmt = stmt.where(LigneIngeree.id_feuille == id_feuille)
+        where_parts.append("v.id_feuille = :id_feuille")
+        params["id_feuille"] = id_feuille
     if id_run is not None:
-        stmt = stmt.where(LigneIngeree.id_run == id_run)
-    if statut_qualite is not None:
-        stmt = stmt.where(LigneIngeree.statut_qualite == statut_qualite)
-
-    # Filtre type_alimentation : on filtre sur le NOM DE FEUILLE (ce qui est
-    # utilisé pour déduire l'alimentation dans _ligne_to_feature).
-    # Avant : on filtrait sur type_ouvrage_brut — incohérent avec l'affichage.
-    if type_alimentation is not None:
-        matching_feuille_ids = [
-            f.id_feuille
-            for f in feuilles
-            if _infer_type_alimentation(f.nom_feuille) == type_alimentation
-        ]
-        if not matching_feuille_ids:
-            # Aucune feuille ne matche → résultat vide, pas la peine d'aller plus loin
-            return {
-                "type": "FeatureCollection",
-                "features": [],
-                "meta": {
-                    "id_fichier": id_fichier,
-                    "nom_fichier": fichier.nom_fichier_original,
-                    "count": 0,
-                },
-            }
-        stmt = stmt.where(LigneIngeree.id_feuille.in_(matching_feuille_ids))
-
-    # Filtres nature / réalisation : recherche textuelle dans donnees_brutes.
-    # Limitation connue : scan complet, faux positifs possibles. Documenté.
-    if nature_ouvrage:
-        if nature_ouvrage == "forage":
-            stmt = stmt.where(_contains_json_value("ligne_ingeree.donnees_brutes", "forage"))
-        elif nature_ouvrage == "puits":
-            stmt = stmt.where(_contains_json_value("ligne_ingeree.donnees_brutes", "puits"))
-
-    if realisation_par:
-        if realisation_par == "public":
-            stmt = stmt.where(
-                or_(
-                    _contains_json_value("ligne_ingeree.donnees_brutes", "public"),
-                    _contains_json_value("ligne_ingeree.donnees_brutes", "administratif"),
-                )
-            )
-        elif realisation_par == "prive":
-            stmt = stmt.where(_contains_json_value("ligne_ingeree.donnees_brutes", "prive"))
-
-    # Filtres géographiques (par localité / région / département / sous-préfecture)
-    # Note : en mode Fichier, on filtre les lignes ingérées qui ont été
-    # rapprochées (id_localite rempli). Les lignes non rapprochées sont exclues
-    # dès qu'un filtre géo est actif — comportement attendu.
-    if localite or region or departement or sous_prefecture:
-        stmt = stmt.join(
-            Localite, Localite.id_localite == LigneIngeree.id_localite
+        # La vue n'expose pas id_run : on filtre via ligne_ingeree.
+        where_parts.append(
+            "v.id_ligne IN (SELECT id_ligne FROM ligne_ingeree WHERE id_run = :id_run)"
         )
-        rg_loc = aliased(RefGeoAdmin)
-        rg_sp = aliased(RefGeoAdmin)
-        rg_dep = aliased(RefGeoAdmin)
-        rg_reg = aliased(RefGeoAdmin)
-        stmt = stmt.join(rg_loc, Localite.id_geo == rg_loc.id_geo)
-        stmt = stmt.outerjoin(rg_sp, rg_loc.parent_id == rg_sp.id_geo)
-        stmt = stmt.outerjoin(rg_dep, rg_sp.parent_id == rg_dep.id_geo)
-        stmt = stmt.outerjoin(rg_reg, rg_dep.parent_id == rg_reg.id_geo)
+        params["id_run"] = id_run
+    if statut_qualite is not None:
+        where_parts.append("v.statut_qualite = :statut_qualite")
+        params["statut_qualite"] = statut_qualite
+    if type_alimentation is not None:
+        # Filtre sur le nom de feuille (seule source d'alimentation en mode brut).
+        # Aligné sur _infer_type_alimentation (mais centralisé ici).
+        patterns = {
+            "PMH": "%PMH%",
+            "HVA": "%HVA%",
+            "PEA": "%PEA%",
+            "HV": "%HV%",
+            "AUTRE": None,  # pas de filtre "AUTRE" (tout ce qui ne matche pas)
+        }
+        pat = patterns[type_alimentation]
+        if pat is None:
+            # "AUTRE" = tout sauf PMH/HVA/PEA/HV
+            where_parts.append(
+                "NOT (v.nom_feuille ILIKE '%PMH%' "
+                "OR v.nom_feuille ILIKE '%HVA%' "
+                "OR v.nom_feuille ILIKE '%PEA%' "
+                "OR v.nom_feuille ILIKE '%HV%')"
+            )
+        else:
+            where_parts.append("v.nom_feuille ILIKE :pat_alim")
+            params["pat_alim"] = pat
 
+    # Filtres géographiques : la vue n'expose pas id_localite, on joint localite.
+    if localite or region or departement or sous_prefecture:
+        # On passe par ligne_ingeree → localite → ref_geo_admin.
+        where_parts.append(
+            "v.id_ligne IN ("
+            "  SELECT li.id_ligne FROM ligne_ingeree li "
+            "  JOIN localite l ON l.id_localite = li.id_localite "
+            "  JOIN ref_geo_admin g_loc ON g_loc.id_geo = l.id_geo "
+            "  LEFT JOIN ref_geo_admin g_sp ON g_sp.id_geo = g_loc.parent_id "
+            "  LEFT JOIN ref_geo_admin g_dep ON g_dep.id_geo = g_sp.parent_id "
+            "  LEFT JOIN ref_geo_admin g_reg ON g_reg.id_geo = g_dep.parent_id "
+            "  WHERE 1=1"
+            + (" AND g_reg.nom = :region" if region else "")
+            + (" AND g_dep.nom = :departement" if departement else "")
+            + (" AND g_sp.nom = :sous_prefecture" if sous_prefecture else "")
+            + (" AND l.nom_usage ILIKE :localite" if localite else "")
+            + ")"
+        )
         if region:
-            stmt = stmt.where(rg_reg.nom == region)
+            params["region"] = region
         if departement:
-            stmt = stmt.where(rg_dep.nom == departement)
+            params["departement"] = departement
         if sous_prefecture:
-            stmt = stmt.where(rg_sp.nom == sous_prefecture)
+            params["sous_prefecture"] = sous_prefecture
         if localite:
-            stmt = stmt.where(Localite.nom_usage.ilike(f"%{localite}%"))
+            params["localite"] = f"%{localite}%"
 
-    rows = db.execute(stmt).all()
-    features = []
-    for row in rows:
-        ligne, geojson_str = row[0], row[1]
-        nom_feuille = feuille_noms.get(ligne.id_feuille)
-        feature = _ligne_to_feature(ligne, fichier, geojson_str, nom_feuille)
-        if feature:
-            features.append(feature)
+    sql = _VUE_FICHIER_SELECT
+    if where_parts:
+        sql += " AND " + " AND ".join(where_parts)
+
+    rows = db.execute(text(sql), params).all()
+    features = [f for f in (_row_to_feature_fichier(r) for r in rows) if f]
 
     return {
         "type": "FeatureCollection",
@@ -345,7 +263,7 @@ def _build_feature_collection_fichier(
 
 
 # =====================================================================
-# MODE TOUS (OUVRAGES CONSOLIDÉS)
+# MODE TOUS (ouvrages consolidés)
 # =====================================================================
 def _build_feature_collection_tous(
     filters: OuvrageFilters,
@@ -357,7 +275,7 @@ def _build_feature_collection_tous(
             func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
         )
         .options(
-            selectinload(Ouvrage.localite).selectinload(Localite.ref_geo),
+            selectinload(Ouvrage.localite),
             selectinload(Ouvrage.cgpes),
         )
     )
@@ -399,26 +317,23 @@ def _build_feature_collection_tous(
         if filters.localite:
             stmt = stmt.where(Localite.nom_usage.ilike(f"%{filters.localite}%"))
 
-    # Filtre bailleur : inner join volontaire — si on filtre par bailleur,
-    # on ne veut que les ouvrages effectivement financés par lui.
-    if getattr(filters, "bailleur", None):
-        stmt = (
-            stmt.join(OuvrageProjet)
-            .join(ProjetFinancement)
-            .join(Source)
-            .where(Source.nom == filters.bailleur)
+    # Filtre bailleur : EXISTS (pas de join → pas de doublons de features).
+    if filters.bailleur:
+        stmt = stmt.where(
+            exists(
+                select(OuvrageProjet.id_ouvrage)
+                .join(
+                    ProjetFinancement,
+                    ProjetFinancement.id_projet == OuvrageProjet.id_projet,
+                )
+                .join(Source, Source.id_source == ProjetFinancement.id_source_financeur)
+                .where(OuvrageProjet.id_ouvrage == Ouvrage.id_ouvrage)
+                .where(Source.nom == filters.bailleur)
+            )
         )
 
     rows = db.execute(stmt).all()
-    features = []
-    for row in rows:
-        o, geojson_str = row[0], row[1]
-        loc_meta = o.localite.metadata_ if o.localite else {}
-        cgpe_meta = o.cgpes[0].metadata_ if o.cgpes else {}
-
-        feature = _ouvrage_to_feature(o, geojson_str, loc_meta, cgpe_meta)
-        if feature:
-            features.append(feature)
+    features = [f for f in (_row_to_feature_ouvrage(r) for r in rows) if f]
 
     return {
         "type": "FeatureCollection",
@@ -432,20 +347,15 @@ def _build_feature_collection_tous(
 # =====================================================================
 @router.get(
     "/carto/fichiers/{id_fichier}/points",
-    summary="Points d'un fichier, d'un run ou d'une feuille (GeoJSON)",
+    summary="Points bruts d'un fichier (GeoJSON, mode Par fichier)",
     operation_id="get_points_fichier",
 )
 def points_fichier(
     id_fichier: int,
     id_feuille: int | None = Query(None),
     id_run: int | None = Query(None),
-    statut_qualite: Literal[
-        "ok", "localite_non_resolue", "geom_invalide",
-        "type_ouvrage_inconnu", "rejete", "doublon_suspect",
-    ] | None = Query(None),
-    type_alimentation: str | None = Query(None),
-    nature_ouvrage: str | None = Query(None),
-    realisation_par: str | None = Query(None),
+    statut_qualite: StatutQualite | None = Query(None),
+    type_alimentation: TypeAlimentation | None = Query(None),
     localite: str | None = Query(None),
     region: str | None = Query(None),
     departement: str | None = Query(None),
@@ -458,8 +368,6 @@ def points_fichier(
         id_run=id_run,
         statut_qualite=statut_qualite,
         type_alimentation=type_alimentation,
-        nature_ouvrage=nature_ouvrage,
-        realisation_par=realisation_par,
         localite=localite,
         region=region,
         departement=departement,
@@ -470,7 +378,7 @@ def points_fichier(
 
 @router.get(
     "/carto/tous/points",
-    summary="Tous les ouvrages consolidés (GeoJSON)",
+    summary="Tous les ouvrages consolidés (GeoJSON, mode Tous)",
     operation_id="get_tous_points",
 )
 def points_tous(
@@ -489,13 +397,8 @@ def telecharger_geojson_fichier(
     id_fichier: int,
     id_feuille: int | None = Query(None),
     id_run: int | None = Query(None),
-    statut_qualite: Literal[
-        "ok", "localite_non_resolue", "geom_invalide",
-        "type_ouvrage_inconnu", "rejete", "doublon_suspect",
-    ] | None = Query(None),
-    type_alimentation: str | None = Query(None),
-    nature_ouvrage: str | None = Query(None),
-    realisation_par: str | None = Query(None),
+    statut_qualite: StatutQualite | None = Query(None),
+    type_alimentation: TypeAlimentation | None = Query(None),
     localite: str | None = Query(None),
     region: str | None = Query(None),
     departement: str | None = Query(None),
@@ -508,8 +411,6 @@ def telecharger_geojson_fichier(
         id_run=id_run,
         statut_qualite=statut_qualite,
         type_alimentation=type_alimentation,
-        nature_ouvrage=nature_ouvrage,
-        realisation_par=realisation_par,
         localite=localite,
         region=region,
         departement=departement,
