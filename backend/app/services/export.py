@@ -10,8 +10,8 @@ Service d'export Excel/CSV streamé.
 Aligné sur la Bible § 4.3.4 et § 5.4.4 :
 - Pas de `type_ouvrage` legacy.
 - 3 champs distincts : nature_ouvrage, type_alimentation, realisation_par.
-- Filtres : region, departement, sous_prefecture, annee_min, annee_max,
-  nature_ouvrage, type_alimentation, realisation_par, etat.
+- Filtres : region, departement, sous_prefecture, localite, bailleur,
+  annee_min, annee_max, nature_ouvrage, type_alimentation, realisation_par, etat.
 - Pas de filtre `district` (réforme territoriale).
 - KPI `par_district` conservé dans la Synthèse (information utile DHR).
 """
@@ -25,8 +25,9 @@ from typing import Any
 
 import xlsxwriter
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import exists, func, select, text
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.config import get_settings
 from app.models import (
@@ -45,7 +46,6 @@ settings = get_settings()
 # =====================================================================
 # Colonnes standard
 # =====================================================================
-# Ordre : identifiants, contexte géo, attributs métier, localisation, financements.
 STANDARD_COLUMNS: list[tuple[str, str]] = [
     ("n", "N°"),
     ("region", "Région"),
@@ -107,9 +107,13 @@ def _build_row(
     db: Session,
     include_metadata: bool,
     index: int,
+    geo_cache: dict[int, dict[str, str]],
 ) -> dict[str, Any]:
-    """Construit une ligne d'export à partir d'un ouvrage."""
-    ref_geo = _get_ref_geo_chain(db, o.id_localite)
+    """Construit une ligne d'export à partir d'un ouvrage avec cache géographique."""
+    if o.id_localite not in geo_cache:
+        geo_cache[o.id_localite] = _get_ref_geo_chain(db, o.id_localite)
+    ref_geo = geo_cache[o.id_localite]
+
     cgpe_existe = ""
     cgpe_statut = ""
     if o.cgpes:
@@ -125,7 +129,6 @@ def _build_row(
         "localite": o.localite.nom_usage if o.localite else "",
         "id_ouvrage": o.id_ouvrage,
         "code_ouvrage": o.code_ouvrage or "",
-        # 3 champs sémantiques (remplace type_ouvrage)
         "nature_ouvrage": o.nature_ouvrage or "",
         "type_alimentation": o.type_alimentation or "",
         "realisation_par": o.realisation_par or "",
@@ -147,12 +150,7 @@ def _build_row(
 # Filtres communs
 # =====================================================================
 def _apply_common_filters(stmt, filters: dict[str, Any]):
-    """Applique les filtres métier + année communs à toutes les requêtes.
-
-    Ne gère PAS les filtres géographiques (region/departement/...) :
-    ces derniers ne sont pas utilisés dans export.py aujourd'hui (le filtrage
-    géo se fait côté UI sur les points consolidés, pas sur l'export).
-    """
+    """Applique tous les filtres (métier, année, géo, bailleur) conformes à Bible § 4.3.4."""
     if filters.get("nature_ouvrage"):
         stmt = stmt.where(Ouvrage.nature_ouvrage == filters["nature_ouvrage"])
     if filters.get("type_alimentation"):
@@ -165,7 +163,57 @@ def _apply_common_filters(stmt, filters: dict[str, Any]):
         stmt = stmt.where(Ouvrage.annee_realisation >= filters["annee_min"])
     if filters.get("annee_max") is not None:
         stmt = stmt.where(Ouvrage.annee_realisation <= filters["annee_max"])
+
+    # Filtres géographiques
+    if any(filters.get(k) for k in ("region", "departement", "sous_prefecture", "localite")):
+        rg_loc = aliased(RefGeoAdmin)
+        rg_sp = aliased(RefGeoAdmin)
+        rg_dep = aliased(RefGeoAdmin)
+        rg_reg = aliased(RefGeoAdmin)
+
+        stmt = (
+            stmt.join(Localite, Ouvrage.id_localite == Localite.id_localite)
+            .join(rg_loc, Localite.id_geo == rg_loc.id_geo)
+            .outerjoin(rg_sp, rg_loc.parent_id == rg_sp.id_geo)
+            .outerjoin(rg_dep, rg_sp.parent_id == rg_dep.id_geo)
+            .outerjoin(rg_reg, rg_dep.parent_id == rg_reg.id_geo)
+        )
+        if filters.get("region"):
+            stmt = stmt.where(rg_reg.nom == filters["region"])
+        if filters.get("departement"):
+            stmt = stmt.where(rg_dep.nom == filters["departement"])
+        if filters.get("sous_prefecture"):
+            stmt = stmt.where(rg_sp.nom == filters["sous_prefecture"])
+        if filters.get("localite"):
+            stmt = stmt.where(
+                func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{filters['localite']}%"))
+            )
+
+    # Filtre bailleur via EXISTS (évite les doublons)
+    if filters.get("bailleur"):
+        stmt = stmt.where(
+            exists(
+                select(OuvrageProjet.id_ouvrage)
+                .join(ProjetFinancement, ProjetFinancement.id_projet == OuvrageProjet.id_projet)
+                .join(Source, Source.id_source == ProjetFinancement.id_source_financeur)
+                .where(OuvrageProjet.id_ouvrage == Ouvrage.id_ouvrage)
+                .where(Source.nom == filters["bailleur"])
+            )
+        )
+
     return stmt
+
+
+def _get_metadata_columns(db: Session, filters: dict[str, Any]) -> list[str]:
+    """Récupère exhaustivement toutes les clés JSONB metadata sur les ouvrages filtrés."""
+    stmt = (
+        select(func.jsonb_object_keys(Ouvrage.metadata_))
+        .select_from(Ouvrage)
+        .distinct()
+    )
+    stmt = _apply_common_filters(stmt, filters)
+    keys = db.scalars(stmt).all()
+    return sorted(f"metadata_{k}" for k in keys)
 
 
 # =====================================================================
@@ -269,6 +317,10 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     kpis["par_bailleur"] = dict(db.execute(stmt).all())
 
     # --- Par district (KPI conservé, pas un filtre UI) ---
+    filtered_ouvrages_subq = _apply_common_filters(
+        select(Ouvrage.id_ouvrage, Ouvrage.id_localite), filters
+    ).subquery("filtered_o")
+
     district_of_sql = """
         WITH RECURSIVE district_of AS (
             SELECT id_geo, id_geo AS district_id
@@ -279,39 +331,16 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
             JOIN district_of d ON r.parent_id = d.id_geo
         )
         SELECT r.nom AS district, COUNT(*) AS nb
-        FROM ouvrage o
+        FROM ({filtered_sql}) o
         JOIN localite l ON l.id_localite = o.id_localite
         JOIN district_of d ON d.id_geo = l.id_geo
         JOIN ref_geo_admin r ON r.id_geo = d.district_id
-        WHERE 1=1
-          {extra_filters}
         GROUP BY r.nom
         ORDER BY nb DESC
     """
-
-    where_clauses: list[str] = []
-    params: dict[str, Any] = {}
-    if filters.get("nature_ouvrage"):
-        where_clauses.append("AND o.nature_ouvrage = :nature_ouvrage")
-        params["nature_ouvrage"] = filters["nature_ouvrage"]
-    if filters.get("type_alimentation"):
-        where_clauses.append("AND o.type_alimentation = :type_alimentation")
-        params["type_alimentation"] = filters["type_alimentation"]
-    if filters.get("realisation_par"):
-        where_clauses.append("AND o.realisation_par = :realisation_par")
-        params["realisation_par"] = filters["realisation_par"]
-    if filters.get("etat"):
-        where_clauses.append("AND o.etat = :etat")
-        params["etat"] = filters["etat"]
-    if filters.get("annee_min") is not None:
-        where_clauses.append("AND o.annee_realisation >= :annee_min")
-        params["annee_min"] = filters["annee_min"]
-    if filters.get("annee_max") is not None:
-        where_clauses.append("AND o.annee_realisation <= :annee_max")
-        params["annee_max"] = filters["annee_max"]
-
-    final_sql = district_of_sql.format(extra_filters="\n          ".join(where_clauses))
-    rows = db.execute(text(final_sql), params).all()
+    compiled = filtered_ouvrages_subq.compile(dialect=postgresql.dialect())
+    final_sql = district_of_sql.format(filtered_sql=str(compiled))
+    rows = db.execute(text(final_sql), compiled.params).all()
     kpis["par_district"] = {r[0]: r[1] for r in rows}
 
     # --- Années ---
@@ -329,7 +358,7 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     # --- Géolocalisation ---
     stmt = (
         select(
-            func.count().filter(text("geom IS NOT NULL")),
+            func.count().filter(text("ouvrage.geom IS NOT NULL")),
             func.count(),
         )
         .select_from(Ouvrage)
@@ -342,28 +371,16 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
         (row[0] / row[1]) if row and row[1] > 0 else 0.0, 3
     )
 
-    # --- CGPE ---
+    # --- CGPE (correction is_(True)) ---
     stmt = (
         select(
-            func.count().filter(CGPE.existe is True, CGPE.statut == "fonctionnel"),
+            func.count().filter(CGPE.existe.is_(True), CGPE.statut == "fonctionnel"),
             func.count(CGPE.id_cgpe),
         )
         .select_from(CGPE)
+        .join(Ouvrage, Ouvrage.id_ouvrage == CGPE.id_ouvrage)
     )
-    needs_join = any(
-        filters.get(k) is not None
-        for k in (
-            "type_alimentation",
-            "nature_ouvrage",
-            "realisation_par",
-            "etat",
-            "annee_min",
-            "annee_max",
-        )
-    )
-    if needs_join:
-        stmt = stmt.join(Ouvrage, Ouvrage.id_ouvrage == CGPE.id_ouvrage)
-        stmt = _apply_common_filters(stmt, filters)
+    stmt = _apply_common_filters(stmt, filters)
     row = db.execute(stmt).first()
     kpis["cgpe_fonctionnel"] = row[0] if row else 0
     kpis["cgpe_total"] = row[1] if row else 0
@@ -386,6 +403,8 @@ def _format_filters(filters: dict[str, Any]) -> str:
         "region": "Région",
         "departement": "Département",
         "sous_prefecture": "Sous-préfecture",
+        "localite": "Localité",
+        "bailleur": "Bailleur",
         "annee_min": "Année ≥",
         "annee_max": "Année ≤",
     }
@@ -525,6 +544,7 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
     ws.set_column(1, 1, 25)
 
 
+
 # =====================================================================
 # Export Excel
 # =====================================================================
@@ -536,14 +556,8 @@ def export_ouvrages_xlsx(
 ) -> Generator[bytes, None, None]:
     _check_export_limit(db, filters)
 
-    metadata_columns: list[str] = []
-    if include_metadata:
-        sample = db.scalars(select(Ouvrage).limit(100)).all()
-        cols: set[str] = set()
-        for o in sample:
-            if o.metadata_:
-                cols.update(o.metadata_.keys())
-        metadata_columns = sorted(f"metadata_{k}" for k in cols)
+    metadata_columns = _get_metadata_columns(db, filters) if include_metadata else []
+    geo_cache: dict[int, dict[str, str]] = {}
 
     buffer = io.BytesIO()
     wb = xlsxwriter.Workbook(buffer, {"in_memory": True})
@@ -568,7 +582,7 @@ def export_ouvrages_xlsx(
     for chunk in _iter_ouvrages(db, filters):
         for o in chunk:
             index += 1
-            row = _build_row(o, db, include_metadata, index)
+            row = _build_row(o, db, include_metadata, index, geo_cache)
             values = [row.get(key, "") for key, _ in STANDARD_COLUMNS]
             if include_metadata:
                 values.extend(row.get(mkey, "") for mkey in metadata_columns)
@@ -590,14 +604,8 @@ def export_ouvrages_csv(
 ) -> Generator[str, None, None]:
     _check_export_limit(db, filters)
 
-    metadata_columns: list[str] = []
-    if include_metadata:
-        sample = db.scalars(select(Ouvrage).limit(100)).all()
-        cols: set[str] = set()
-        for o in sample:
-            if o.metadata_:
-                cols.update(o.metadata_.keys())
-        metadata_columns = sorted(f"metadata_{k}" for k in cols)
+    metadata_columns = _get_metadata_columns(db, filters) if include_metadata else []
+    geo_cache: dict[int, dict[str, str]] = {}
 
     headers = [label for _, label in STANDARD_COLUMNS]
     if include_metadata:
@@ -611,7 +619,7 @@ def export_ouvrages_csv(
     for chunk in _iter_ouvrages(db, filters):
         for o in chunk:
             index += 1
-            row = _build_row(o, db, include_metadata, index)
+            row = _build_row(o, db, include_metadata, index, geo_cache)
             values = [row.get(key, "") for key, _ in STANDARD_COLUMNS]
             if include_metadata:
                 values.extend(row.get(mkey, "") for mkey in metadata_columns)

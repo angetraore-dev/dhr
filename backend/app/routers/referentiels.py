@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth import require_api_key
@@ -32,7 +32,6 @@ router = APIRouter(
     dependencies=[Depends(require_api_key)],
 )
 
-
 # =====================================================================
 # SOURCES
 # =====================================================================
@@ -44,7 +43,7 @@ router = APIRouter(
 def list_sources(
     pagination: OffsetPagination = Depends(),
     db: Session = Depends(get_db),
-):
+) -> PaginatedOffset[SourceSchema]:
     total = db.scalar(select(func.count()).select_from(Source))
     rows = db.scalars(
         select(Source).order_by(Source.nom).offset(pagination.offset).limit(pagination.limit)
@@ -71,7 +70,7 @@ def list_ref_geo(
     parent_id: int | None = Query(None),
     pagination: OffsetPagination = Depends(),
     db: Session = Depends(get_db),
-):
+) -> PaginatedOffset[RefGeoAdminSchema]:
     stmt = select(RefGeoAdmin)
     if niveau is not None:
         stmt = stmt.where(RefGeoAdmin.niveau == niveau)
@@ -85,14 +84,21 @@ def list_ref_geo(
         .limit(pagination.limit)
     ).all()
 
-    # Charge les parents (1 niveau) pour la réponse
+    # Chargement groupé des parents (évite le N+1)
+    parent_ids = {r.parent_id for r in rows if r.parent_id is not None}
+    parents_map: dict[int, RefGeoAdmin] = {}
+    if parent_ids:
+        parents = db.scalars(
+            select(RefGeoAdmin).where(RefGeoAdmin.id_geo.in_(parent_ids))
+        ).all()
+        parents_map = {p.id_geo: p for p in parents}
+
     result = []
     for r in rows:
         parent = None
-        if r.parent_id is not None:
-            p = db.get(RefGeoAdmin, r.parent_id)
-            if p is not None:
-                parent = {"id_geo": p.id_geo, "niveau": p.niveau, "nom": p.nom}
+        if r.parent_id is not None and r.parent_id in parents_map:
+            p = parents_map[r.parent_id]
+            parent = {"id_geo": p.id_geo, "niveau": p.niveau, "nom": p.nom}
         result.append(
             RefGeoAdminSchema(
                 id_geo=r.id_geo,
@@ -115,33 +121,52 @@ def list_ref_geo(
     response_model=list[RefGeoAdminSchema],
     summary="Chaîne hiérarchique district → localité",
 )
-def get_ref_geo_chemin(id: int, db: Session = Depends(get_db)):
-    node = db.get(RefGeoAdmin, id)
-    if node is None:
+def get_ref_geo_chemin(id: int, db: Session = Depends(get_db)) -> list[RefGeoAdminSchema]:
+    """Remonte la hiérarchie en une seule requête (CTE récursive).
+
+    Remplace l'ancienne boucle `while db.get(...)` qui faisait N requêtes
+    (une par niveau). La CTE fait 1 requête, quel que soit le nombre de niveaux.
+    """
+    # CTE récursive : on part du nœud cible, on remonte jusqu'au district.
+    # L'ordre final est district → localité (depth décroissant).
+    sql = text("""
+        WITH RECURSIVE chain AS (
+            SELECT id_geo, niveau, nom, parent_id, code_officiel, type_localite,
+                   0 AS depth
+            FROM ref_geo_admin
+            WHERE id_geo = :id_geo
+
+            UNION ALL
+
+            SELECT p.id_geo, p.niveau, p.nom, p.parent_id,
+                   p.code_officiel, p.type_localite,
+                   c.depth + 1
+            FROM ref_geo_admin p
+            JOIN chain c ON c.parent_id = p.id_geo
+        )
+        SELECT id_geo, niveau, nom, parent_id, code_officiel, type_localite
+        FROM chain
+        ORDER BY depth DESC
+    """)
+
+    rows = db.execute(sql, {"id_geo": id}).all()
+    if not rows:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"ref_geo_admin {id} introuvable",
         )
 
-    chain: list[RefGeoAdmin] = []
-    current = node
-    while current is not None:
-        chain.append(current)
-        current = db.get(RefGeoAdmin, current.parent_id) if current.parent_id else None
-
-    chain.reverse()  # district → localité
     return [
         RefGeoAdminSchema(
-            id_geo=n.id_geo,
-            niveau=n.niveau,
-            nom=n.nom,
-            code_officiel=n.code_officiel,
-            type_localite=n.type_localite,
+            id_geo=r.id_geo,
+            niveau=r.niveau,
+            nom=r.nom,
+            code_officiel=r.code_officiel,
+            type_localite=r.type_localite,
             parent=None,
         )
-        for n in chain
+        for r in rows
     ]
-
 
 # =====================================================================
 # LOCALITÉS
@@ -156,12 +181,14 @@ def list_localites(
     q: str | None = Query(None, description="Recherche floue sur le nom"),
     pagination: OffsetPagination = Depends(),
     db: Session = Depends(get_db),
-):
+) -> PaginatedOffset[LocaliteResume]:
     stmt = select(Localite)
     if id_geo is not None:
         stmt = stmt.where(Localite.id_geo == id_geo)
     if q:
-        stmt = stmt.where(Localite.nom_usage.ilike(f"%{q}%"))
+        stmt = stmt.where(
+            func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{q}%"))
+        )
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = db.scalars(
@@ -185,7 +212,7 @@ def get_localite(
     id: int,
     include: Literal["metadata"] | None = Query(None),
     db: Session = Depends(get_db),
-):
+) -> LocaliteSchema:
     loc = db.scalar(
         select(Localite)
         .where(Localite.id_localite == id)
@@ -197,13 +224,19 @@ def get_localite(
             detail=f"Localité {id} introuvable",
         )
 
-    data = LocaliteSchema(
+    geom_centre = None
+    if loc.latitude_centre is not None and loc.longitude_centre is not None:
+        geom_centre = {
+            "type": "Point",
+            "coordinates": [loc.longitude_centre, loc.latitude_centre],
+        }
+
+    return LocaliteSchema(
         id_localite=loc.id_localite,
         nom_usage=loc.nom_usage,
         latitude_centre=loc.latitude_centre,
         longitude_centre=loc.longitude_centre,
-        geom_centre=None,
+        geom_centre=geom_centre,
         alias=[a.alias for a in loc.alias],
         metadata=loc.metadata_ if include == "metadata" else None,
     )
-    return data

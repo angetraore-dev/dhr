@@ -17,7 +17,6 @@ router = APIRouter(
     dependencies=[Depends(require_api_key)],
 )
 
-
 @router.get(
     "/qualite/fichiers/{id}",
     response_model=QualiteFichier,
@@ -34,7 +33,6 @@ def qualite_fichier(id: int, db: Session = Depends(get_db)):
     source = db.get(Source, f.id_source)
     source_nom = source.nom if source else "?"
 
-    # Compte par statut qualité (jointure sur Feuille)
     stmt = (
         select(LigneIngeree.statut_qualite, func.count())
         .join(Feuille, LigneIngeree.id_feuille == Feuille.id_feuille)
@@ -43,19 +41,22 @@ def qualite_fichier(id: int, db: Session = Depends(get_db)):
     )
     counts = dict(db.execute(stmt).all())
 
+    nb_lignes_stockees = sum(counts.values())
+    # Règle Bible § 2.2.D & § 3.1.6 : les rejets ne sont pas stockés,
+    # ils sont calculés par différence avec nb_lignes_total.
+    nb_rejetes = f.nb_lignes_total - nb_lignes_stockees
+
     stats = QualiteStats(
         ok=counts.get("ok", 0),
         localite_non_resolue=counts.get("localite_non_resolue", 0),
         geom_invalide=counts.get("geom_invalide", 0),
-        # Aligné sur la Bible § 3.1.6 et le CHECK SQL :
-        # le statut est "type_ouvrage_inconnu" (pas "type_alimentation_inconnu").
         type_ouvrage_inconnu=counts.get("type_ouvrage_inconnu", 0),
-        rejete=counts.get("rejete", 0),
+        rejete=nb_rejetes,
         doublon_suspect=counts.get("doublon_suspect", 0),
     )
 
-    total_lignes = sum(counts.values())
-    taux = stats.ok / total_lignes if total_lignes > 0 else 0.0
+    # Règle Bible § 4.5 : taux_reussite = ok / nb_lignes_total
+    taux = stats.ok / f.nb_lignes_total if f.nb_lignes_total > 0 else 0.0
 
     return QualiteFichier(
         id_fichier=f.id_fichier,

@@ -7,19 +7,24 @@ Mode Tous    : lit ouvrage + v_points_consolides (jointures manuelles).
 On utilise ST_AsGeoJSON() côté SQL pour éviter les problèmes de conversion
 WKB (les colonnes générées geom ne sont pas déclarées en ORM).
 """
-from __future__ import annotations
 
 import json
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy import exists, func, literal_column, select, text
-from sqlalchemy.orm import Session, selectinload, aliased
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.auth import require_api_key
 from app.db import get_db
-from app.deps import OuvrageFilters
+from app.deps import (
+    NatureOuvrage,
+    OuvrageFilters,
+    StatutQualite,
+    RealisationPar,
+    TypeAlimentation,
+)
 from app.models import (
     Fichier,
     Localite,
@@ -34,16 +39,6 @@ router = APIRouter(
     tags=["Carto"],
     dependencies=[Depends(require_api_key)],
 )
-
-# Types autorisés (alignés sur les CHECK SQL / Literal des schémas)
-TypeAlimentation = Literal["PMH", "HVA", "PEA", "HV", "AUTRE"]
-NatureOuvrage = Literal["puits", "forage", "inconnu"]
-RealisationPar = Literal["public", "prive", "inconnu"]
-StatutQualite = Literal[
-    "ok", "localite_non_resolue", "geom_invalide",
-    "type_ouvrage_inconnu", "rejete", "doublon_suspect",
-]
-
 
 # =====================================================================
 # Helpers
@@ -80,6 +75,12 @@ def _row_to_feature_fichier(row: Any) -> dict[str, Any] | None:
             "id_ligne": m["id_ligne"],
             "id_fichier": m["id_fichier"],
             "nom_fichier": m["nom_fichier_original"],
+            "source": m["source"],
+            "date_ingestion": (
+                m["date_ingestion"].isoformat()
+                if m["date_ingestion"] is not None
+                else None
+            ),
             "id_feuille": m["id_feuille"],
             "nom_feuille": m["nom_feuille"],
             "num_ligne_source": m["num_ligne_source"],
@@ -97,13 +98,14 @@ def _row_to_feature_fichier(row: Any) -> dict[str, Any] | None:
 
 def _row_to_feature_ouvrage(row: Any) -> dict[str, Any] | None:
     """Convertit une ligne (Ouvrage, geojson) en Feature GeoJSON (mode Tous)."""
-    o: Ouvrage = row[0]
-    geom = _parse_geojson_geom(row[1])
+    m = row._mapping
+    o: Ouvrage = m["Ouvrage"]
+    geom = _parse_geojson_geom(m["geojson"])
     if geom is None:
         return None
 
-    loc_meta = o.localite.metadata_ if o.localite else {}
-    cgpe_meta = o.cgpes[0].metadata_ if o.cgpes else {}
+    loc_meta = o.localite.metadata_ if o.localite else None
+    cgpe_meta = o.cgpes[0].metadata_ if o.cgpes else None
 
     details = {
         "ouvrage": o.metadata_ or {},
@@ -125,7 +127,7 @@ def _row_to_feature_ouvrage(row: Any) -> dict[str, Any] | None:
             "etat": o.etat,
             "annee_realisation": o.annee_realisation,
             "localite": o.localite.nom_usage if o.localite else None,
-            "qualite_eau": o.qualite_eau,
+            "qualite_eau": o.qualite_eau or {},
             "details": details,
         },
     }
@@ -134,7 +136,7 @@ def _row_to_feature_ouvrage(row: Any) -> dict[str, Any] | None:
 # =====================================================================
 # MODE FICHIER (v_points_par_fichier)
 # =====================================================================
-# Colonnes exposées par la vue, dans l'ordre du SELECT.
+# Colonnes exposées par la vue. Le WHERE est ajouté dynamiquement.
 _VUE_FICHIER_SELECT = """
     SELECT
         v.id_fichier,
@@ -155,7 +157,6 @@ _VUE_FICHIER_SELECT = """
         v.longitude_decimal,
         ST_AsGeoJSON(v.geom) AS geojson
     FROM v_points_par_fichier v
-    WHERE v.id_fichier = :id_fichier
 """
 
 
@@ -178,8 +179,8 @@ def _build_feature_collection_fichier(
             detail=f"Fichier {id_fichier} introuvable",
         )
 
-    # Construction dynamique du WHERE (paramétré, pas d'injection).
-    where_parts: list[str] = []
+    # WHERE dynamique : le premier critère est toujours id_fichier.
+    where_parts: list[str] = ["v.id_fichier = :id_fichier"]
     params: dict[str, Any] = {"id_fichier": id_fichier}
 
     if id_feuille is not None:
@@ -195,31 +196,23 @@ def _build_feature_collection_fichier(
         where_parts.append("v.statut_qualite = :statut_qualite")
         params["statut_qualite"] = statut_qualite
     if type_alimentation is not None:
-        # Filtre sur le nom de feuille (seule source d'alimentation en mode brut).
-        # Aligné sur _infer_type_alimentation (mais centralisé ici).
-        patterns = {
-            "PMH": "%PMH%",
-            "HVA": "%HVA%",
-            "PEA": "%PEA%",
-            "HV": "%HV%",
-            "AUTRE": None,  # pas de filtre "AUTRE" (tout ce qui ne matche pas)
+        # Regex SQL (~*) avec limites de mots (\m...\M) pour éviter
+        # que 'HV' ne matche 'HVA'. ~* = insensible à la casse.
+        regex_map = {
+            "PMH": r"\mPMH\M",
+            "HVA": r"\mHVA\M",
+            "PEA": r"\mPEA\M",
+            "HV": r"\mHV\M",
         }
-        pat = patterns[type_alimentation]
-        if pat is None:
-            # "AUTRE" = tout sauf PMH/HVA/PEA/HV
-            where_parts.append(
-                "NOT (v.nom_feuille ILIKE '%PMH%' "
-                "OR v.nom_feuille ILIKE '%HVA%' "
-                "OR v.nom_feuille ILIKE '%PEA%' "
-                "OR v.nom_feuille ILIKE '%HV%')"
-            )
+        if type_alimentation == "AUTRE":
+            where_parts.append("v.nom_feuille !~* :pat_alim")
+            params["pat_alim"] = r"\m(PMH|HVA|PEA|HV)\M"
         else:
-            where_parts.append("v.nom_feuille ILIKE :pat_alim")
-            params["pat_alim"] = pat
+            where_parts.append("v.nom_feuille ~* :pat_alim")
+            params["pat_alim"] = regex_map[type_alimentation]
 
     # Filtres géographiques : la vue n'expose pas id_localite, on joint localite.
     if localite or region or departement or sous_prefecture:
-        # On passe par ligne_ingeree → localite → ref_geo_admin.
         where_parts.append(
             "v.id_ligne IN ("
             "  SELECT li.id_ligne FROM ligne_ingeree li "
@@ -232,7 +225,11 @@ def _build_feature_collection_fichier(
             + (" AND g_reg.nom = :region" if region else "")
             + (" AND g_dep.nom = :departement" if departement else "")
             + (" AND g_sp.nom = :sous_prefecture" if sous_prefecture else "")
-            + (" AND l.nom_usage ILIKE :localite" if localite else "")
+            + (
+                " AND unaccent(l.nom_usage) ILIKE unaccent(:localite)"
+                if localite
+                else ""
+            )
             + ")"
         )
         if region:
@@ -244,9 +241,7 @@ def _build_feature_collection_fichier(
         if localite:
             params["localite"] = f"%{localite}%"
 
-    sql = _VUE_FICHIER_SELECT
-    if where_parts:
-        sql += " AND " + " AND ".join(where_parts)
+    sql = _VUE_FICHIER_SELECT + " WHERE " + " AND ".join(where_parts)
 
     rows = db.execute(text(sql), params).all()
     features = [f for f in (_row_to_feature_fichier(r) for r in rows) if f]
@@ -315,7 +310,11 @@ def _build_feature_collection_tous(
         if filters.sous_prefecture:
             stmt = stmt.where(rg_sp.nom == filters.sous_prefecture)
         if filters.localite:
-            stmt = stmt.where(Localite.nom_usage.ilike(f"%{filters.localite}%"))
+            stmt = stmt.where(
+                func.unaccent(Localite.nom_usage).ilike(
+                    func.unaccent(f"%{filters.localite}%")
+                )
+            )
 
     # Filtre bailleur : EXISTS (pas de join → pas de doublons de features).
     if filters.bailleur:
@@ -326,7 +325,10 @@ def _build_feature_collection_tous(
                     ProjetFinancement,
                     ProjetFinancement.id_projet == OuvrageProjet.id_projet,
                 )
-                .join(Source, Source.id_source == ProjetFinancement.id_source_financeur)
+                .join(
+                    Source,
+                    Source.id_source == ProjetFinancement.id_source_financeur,
+                )
                 .where(OuvrageProjet.id_ouvrage == Ouvrage.id_ouvrage)
                 .where(Source.nom == filters.bailleur)
             )

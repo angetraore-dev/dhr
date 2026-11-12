@@ -22,6 +22,7 @@ from app.models import (
     OuvrageProjet,
     ProjetFinancement,
     RefGeoAdmin,
+    Source,
 )
 from app.schemas.common import PaginatedCursor
 from app.schemas.ouvrages import CGPE as CGPESchema  # noqa: N811
@@ -39,6 +40,7 @@ router = APIRouter(
     tags=["Ouvrages"],
     dependencies=[Depends(require_api_key)],
 )
+
 
 # =====================================================================
 # Helpers
@@ -112,7 +114,7 @@ def _build_ouvrage_schema(
         cgpe=cgpe_summary,
         financements=financements,
         metadata=o.metadata_ if include_metadata else None,
-        qualite_eau=o.qualite_eau,   # ← ajout (IMP-1)
+        qualite_eau=o.qualite_eau,
     )
 
 
@@ -140,7 +142,9 @@ def _apply_geo_filters(stmt, filters: OuvrageFilters):
     if filters.sous_prefecture:
         stmt = stmt.where(rg_sp.c.nom == filters.sous_prefecture)
     if filters.localite:
-        stmt = stmt.where(Localite.nom_usage.ilike(f"%{filters.localite}%"))
+        stmt = stmt.where(
+            func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{filters.localite}%"))
+        )
 
     return stmt
 
@@ -149,7 +153,6 @@ def _apply_bailleur_filter(stmt, filters: OuvrageFilters):
     """Applique le filtre bailleur (jointure sur ouvrage_projet + projet_financement)."""
     if not getattr(filters, "bailleur", None):
         return stmt
-    from app.models import Source
     stmt = (
         stmt.join(OuvrageProjet)
         .join(ProjetFinancement)
@@ -179,8 +182,6 @@ def list_ouvrages(
             func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
         )
         .options(
-            # Note : on NE fait PAS selectinload sur type_alimentation /
-            # nature_ouvrage, ce sont des colonnes (pas des relations).
             selectinload(Ouvrage.localite),
             selectinload(Ouvrage.cgpes),
             selectinload(Ouvrage.financements)
@@ -189,7 +190,6 @@ def list_ouvrages(
         )
     )
 
-    # Filtres métier
     if filters.type_alimentation:
         stmt = stmt.where(Ouvrage.type_alimentation == filters.type_alimentation)
     if filters.nature_ouvrage:
@@ -203,7 +203,6 @@ def list_ouvrages(
     if filters.annee_max is not None:
         stmt = stmt.where(Ouvrage.annee_realisation <= filters.annee_max)
 
-    # Filtres géo et bailleur
     stmt = _apply_geo_filters(stmt, filters)
     stmt = _apply_bailleur_filter(stmt, filters)
 

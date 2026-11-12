@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth import JWTUser, require_api_key, require_jwt
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.deps import OffsetPagination
 from app.models import Feuille, Fichier, IngestionRun
 from app.schemas.common import PaginatedOffset
@@ -48,6 +48,7 @@ logger = logging.getLogger("dhr.fichiers")
 
 router = APIRouter(tags=["Fichiers"])
 
+
 # =====================================================================
 # FICHIERS
 # =====================================================================
@@ -55,12 +56,11 @@ router = APIRouter(tags=["Fichiers"])
     "/fichiers",
     response_model=PaginatedOffset[FichierSchema],
     summary="Liste des fichiers",
-    dependencies=[Depends(require_api_key)]
+    dependencies=[Depends(require_api_key)],
 )
 def list_fichiers(
     id_source: int | None = Query(None),
-    statut: Literal["en_attente", "en_cours", "ingere", "partiel", "erreur"]
-    | None = Query(None),
+    statut: Literal["en_attente", "en_cours", "ingere", "partiel", "erreur"] | None = Query(None),
     pagination: OffsetPagination = Depends(),
     db: Session = Depends(get_db),
 ):
@@ -103,7 +103,7 @@ def list_fichiers(
     "/fichiers/{id}",
     response_model=FichierSchema,
     summary="Détail d'un fichier",
-    dependencies=[Depends(require_api_key)]
+    dependencies=[Depends(require_api_key)],
 )
 def get_fichier(id: int, db: Session = Depends(get_db)):
     f = db.scalar(
@@ -139,14 +139,13 @@ def get_fichier(id: int, db: Session = Depends(get_db)):
     "/fichiers/{id}/feuilles",
     response_model=PaginatedOffset[FeuilleSchema],
     summary="Feuilles d'un fichier",
-    dependencies=[Depends(require_api_key)]
+    dependencies=[Depends(require_api_key)],
 )
 def list_feuilles_fichier(
     id: int,
     pagination: OffsetPagination = Depends(),
     db: Session = Depends(get_db),
 ):
-    # Vérifie que le fichier existe
     fichier = db.get(Fichier, id)
     if fichier is None:
         raise HTTPException(
@@ -167,26 +166,21 @@ def list_feuilles_fichier(
         pagination=pagination.to_response(total=total),
     )
 
+
 # =====================================================================
 # MAPPING
 # =====================================================================
-
 @router.get(
     "/fichiers/{id}/mapping-proposal",
     response_model=list[MappingProposalFeuille],
     summary="Proposition de mapping automatique",
-    dependencies=[Depends(require_api_key)]
+    dependencies=[Depends(require_api_key)],
 )
 def get_mapping_proposal(id: int, db: Session = Depends(get_db)):
-    """
-    Retourne, pour chaque feuille du fichier, la liste des entêtes
-    avec le champ cible proposé (mapping auto) et un score de confiance.
-    Si un mapping validé existe, il est retourné à la place.
-    """
     try:
         return proposer_mapping_fichier(db, id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.put(
@@ -203,18 +197,27 @@ def put_mapping(
 ):
     fichier = db.get(Fichier, id)
     if fichier is None:
-        raise HTTPException(status_code=404, detail=f"Fichier {id} introuvable")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Fichier {id} introuvable")
 
     if id_feuille is not None:
         feuille = db.get(Feuille, id_feuille)
         if feuille is None or feuille.id_fichier != id:
-            raise HTTPException(status_code=404, detail=f"Feuille {id_feuille} introuvable pour le fichier {id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Feuille {id_feuille} introuvable pour le fichier {id}",
+            )
     else:
         feuille = db.scalar(
-            select(Feuille).where(Feuille.id_fichier == id).order_by(Feuille.index_feuille).limit(1)
+            select(Feuille)
+            .where(Feuille.id_fichier == id)
+            .order_by(Feuille.index_feuille)
+            .limit(1)
         )
         if feuille is None:
-            raise HTTPException(status_code=404, detail=f"Aucune feuille pour le fichier {id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Aucune feuille pour le fichier {id}",
+            )
 
     try:
         result = sauvegarder_mapping_feuille(db, feuille.id_feuille, payload.colonnes)
@@ -222,19 +225,18 @@ def put_mapping(
         return result
     except ValueError as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
 
 # =====================================================================
 # UPLOAD
 # =====================================================================
-
-
 @router.post(
     "/fichiers",
     status_code=status.HTTP_201_CREATED,
     summary="Uploader un fichier (synchrone : analyse des feuilles)",
 )
-async def upload_fichier(
+def upload_fichier(
     file: UploadFile = File(...),
     id_source: int = Form(...),
     commentaire: str | None = Form(None),
@@ -242,21 +244,48 @@ async def upload_fichier(
     db: Session = Depends(get_db),
     user: JWTUser = Depends(require_jwt),
 ):
-    """
-    Upload un fichier Excel.
-    - Sauvegarde dans /app/uploads/
-    - Détecte les feuilles
-    - Crée fichier + feuille en base
-    - Retourne les feuilles détectées
-    """
-    #return uploader_fichier(db, file, id_source, commentaire, force)
     result = uploader_fichier(db, file, id_source, commentaire, force)
     db.commit()
     return result
 
+
 # =====================================================================
 # RUNS
 # =====================================================================
+def _valider_parametres_run(
+    mode: str,
+    limite_lignes: int | None,
+    ligne_debut: int | None,
+    ligne_fin: int | None,
+) -> None:
+    if mode == "complet" and any(x is not None for x in (limite_lignes, ligne_debut, ligne_fin)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="En mode 'complet', limite_lignes, ligne_debut et ligne_fin doivent être vides.",
+        )
+    if mode == "echantillon":
+        if limite_lignes is None or limite_lignes <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="En mode 'echantillon', limite_lignes doit être un entier positif.",
+            )
+        if ligne_debut is not None or ligne_fin is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="En mode 'echantillon', ligne_debut et ligne_fin doivent être vides.",
+            )
+    if mode == "plage":
+        if limite_lignes is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="En mode 'plage', limite_lignes doit être vide.",
+            )
+        if ligne_debut is None or ligne_fin is None or ligne_fin < ligne_debut:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="En mode 'plage', ligne_debut et ligne_fin sont requis avec ligne_fin >= ligne_debut.",
+            )
+
 @router.post(
     "/fichiers/{id}/runs",
     status_code=status.HTTP_202_ACCEPTED,
@@ -279,31 +308,39 @@ def lancer_run(
     1. Ingestion
     2. Rapprochement
     3. Consolidation
-
     Le client doit poller GET /runs/{id} pour suivre l'avancement.
     """
-    # Crée le run
-    run = creer_run(
-        db, id,
-        id_feuille=id_feuille,
-        mode=mode,
-        limite_lignes=limite_lignes,
-        ligne_debut=ligne_debut,
-        ligne_fin=ligne_fin,
-    )
-    db.commit()
+    _valider_parametres_run(mode, limite_lignes, ligne_debut, ligne_fin)
 
-    # Lance le pipeline en arrière-plan
-    from app.db import SessionLocal
+    try:
+        run = creer_run(
+            db,
+            id,
+            id_feuille=id_feuille,
+            mode=mode,
+            limite_lignes=limite_lignes,
+            ligne_debut=ligne_debut,
+            ligne_fin=ligne_fin,
+        )
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
 
-    def _pipeline():
+
+    def _pipeline() -> None:
         db2 = SessionLocal()
         try:
             executer_pipeline(db2, run.id_run)
             db2.commit()
         except Exception as e:
             logger.exception("Erreur pipeline run %s : %s", run.id_run, e)
-            db2.rollback()
+            # executer_pipeline a déjà fait son rollback et passé run/fichier en 'erreur'.
+            # On commit pour sauvegarder ces statuts d'erreur en base !
+            db2.commit()
         finally:
             db2.close()
 
@@ -317,22 +354,23 @@ def lancer_run(
         "poll_url": f"/v1/runs/{run.id_run}",
     }
 
-
 @router.get(
     "/fichiers/{id}/runs",
     response_model=PaginatedOffset[IngestionRunSchema],
     summary="Historique des runs d'un fichier",
-    dependencies=[Depends(require_api_key)]
+    dependencies=[Depends(require_api_key)],
 )
 def list_runs_fichier(
     id: int,
     pagination: OffsetPagination = Depends(),
     db: Session = Depends(get_db),
 ):
-    from sqlalchemy import func
     fichier = db.get(Fichier, id)
     if fichier is None:
-        raise HTTPException(404, f"Fichier {id} introuvable")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Fichier {id} introuvable",
+        )
 
     stmt = select(IngestionRun).where(IngestionRun.id_fichier == id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))

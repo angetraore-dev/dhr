@@ -1,46 +1,125 @@
 """
-Test manuel d'ingestion : parse un fichier Excel sans passer par l'API.
-Usage : python /app/scripts/test_ingestion.py /app/tests/fixtures/fichier1.xlsx [header_row]
+Test d'ingestion réelle : parse + insère en base.
+Usage : docker compose exec backend python -u /app/scripts/test_ingestion.py /app/tests/fixtures/fichier1.xlsx 2>&1
 """
 from __future__ import annotations
 
 import sys
+import traceback
 from pathlib import Path
 
-# Ajouter /app au PYTHONPATH (pour import app.*)
 sys.path.insert(0, "/app")
 
-from app.services.ingestion import _analyser_entetes, detecter_feuilles
+from sqlalchemy import func, select
+
+from app.db import SessionLocal
+from app.models import Feuille, Fichier, IngestionRun, LigneIngeree, Source
+from app.services.ingestion import detecter_feuilles, ingerer_fichier
 
 
-def test(chemin: str, header_row_force: int | None = None) -> None:
-    path = Path(chemin)
-    print(f"\n{'='*70}")
-    print(f"Test : {path.name}")
-    print(f"{'='*70}")
+def test(chemin: str) -> None:
+    db = SessionLocal()
+    try:
+        path = Path(chemin)
+        print(f"\n{'='*70}", flush=True)
+        print(f"Test d'ingestion réelle : {path.name}", flush=True)
+        print(f"{'='*70}", flush=True)
 
-    feuilles = detecter_feuilles(chemin, header_row_force)
-    for f in feuilles:
-        print(f"\n  Feuille '{f.nom}' (header_row={f.header_row}, {f.nb_lignes} lignes)")
+        if not path.exists():
+            print(f"[X] Fichier introuvable : {chemin}", flush=True)
+            return
 
-        mapping = _analyser_entetes(f.entetes, f.index, f.header_row)
-        print(f"    Colonnes mappées ({len(mapping.colonnes_mappees)}) :")
-        for idx, champ in sorted(mapping.colonnes_mappees.items()):
-            entete = f.entetes[idx] if idx < len(f.entetes) else "?"
-            print(f"      [{idx}] {entete[:50]!r} → {champ}")
+        # --- Source ---
+        source = db.scalar(select(Source).limit(1))
+        if source is None:
+            source = Source(nom="TEST", type_source="autre", actif=True)
+            db.add(source)
+            db.flush()
+        print(f"[1] Source : {source.nom}", flush=True)
 
-        print(f"    Colonnes non mappées ({len(mapping.colonnes_non_mappees)}) :")
-        for h in mapping.colonnes_non_mappees[:5]:
-            print(f"      {h[:70]!r}")
-        if len(mapping.colonnes_non_mappees) > 5:
-            print(f"      ... et {len(mapping.colonnes_non_mappees) - 5} autres")
+        # --- Fichier ---
+        fichier = Fichier(
+            id_source=source.id_source,
+            nom_fichier_original=path.name,
+            chemin_stockage=str(path),
+            statut="en_attente",
+        )
+        db.add(fichier)
+        db.flush()
+        print(f"[2] Fichier créé : id={fichier.id_fichier}", flush=True)
 
-    print("\n  → Mapping OK pour toutes les feuilles")
+        # --- Détection des feuilles ---
+        feuilles_info = detecter_feuilles(chemin)
+        print(f"[3] {len(feuilles_info)} feuilles détectées", flush=True)
+        for fi in feuilles_info:
+            print(f"    - '{fi.nom}' ({fi.nb_lignes} lignes, header_row={fi.header_row})", flush=True)
+
+        for fi in feuilles_info:
+            feuille = Feuille(
+                id_fichier=fichier.id_fichier,
+                nom_feuille=fi.nom,
+                index_feuille=fi.index,
+                type_contenu="ouvrages",
+                nb_lignes=fi.nb_lignes,
+                statut_ingestion="en_attente",
+            )
+            db.add(feuille)
+        db.flush()
+        print(f"[4] {len(feuilles_info)} feuilles insérées en base", flush=True)
+
+        # --- Run ---
+        run = IngestionRun(
+            id_fichier=fichier.id_fichier,
+            mode="complet",
+            statut="en_cours",
+        )
+        db.add(run)
+        db.flush()
+        print(f"[5] Run créé : id={run.id_run}", flush=True)
+
+        # --- Ingestion ---
+        print("[6] Lancement ingerer_fichier...", flush=True)
+        resultat = ingerer_fichier(db, fichier, run, mode="complet")
+        print(f"[7] Ingestion terminée : {resultat}", flush=True)
+
+        # --- Commit ---
+        db.commit()
+        print("[8] Commit OK", flush=True)
+
+        # --- Vérifications ---
+        db.refresh(fichier)
+        total_stockees = db.scalar(select(func.count()).select_from(LigneIngeree).where(
+            LigneIngeree.id_run == run.id_run
+        )) or 0
+        print(f"\n[9] Total lignes stockées en base (run {run.id_run}) : {total_stockees}", flush=True)
+        print(f"    Lignes totales déclarées (Bible C4/B5) : {fichier.nb_lignes_total}", flush=True)
+
+        avec_coords = db.scalar(select(func.count()).select_from(LigneIngeree).where(
+            LigneIngeree.id_run == run.id_run,
+            LigneIngeree.latitude_decimal.isnot(None),
+            LigneIngeree.longitude_decimal.isnot(None),
+        )) or 0
+        if total_stockees:
+            print(f"[10] Qualité : {avec_coords} lignes valides sur {total_stockees} stockées ({avec_coords/total_stockees*100:.1f}%)", flush=True)
+
+        # 3 exemples
+        print("\n[11] 3 premiers enregistrements :", flush=True)
+        lignes = db.scalars(select(LigneIngeree).where(
+            LigneIngeree.id_run == run.id_run
+        ).limit(3)).all()
+        for l in lignes:
+            print(f"    - localite={l.localite_brute!r}, lat={l.latitude_decimal}, lon={l.longitude_decimal}, type={l.type_ouvrage_brut!r}", flush=True)
+
+    except Exception as e:
+        print(f"\n[X] EXCEPTION : {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
+        db.rollback()
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage : python test_ingestion.py <fichier.xlsx> [header_row]")
+        print("Usage : python test_ingestion_reelle.py <fichier.xlsx>")
         sys.exit(1)
-    h = int(sys.argv[2]) if len(sys.argv) > 2 else None
-    test(sys.argv[1], h)
+    test(sys.argv[1])
