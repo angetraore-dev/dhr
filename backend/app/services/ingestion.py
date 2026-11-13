@@ -112,20 +112,22 @@ def _serialiser_valeur(val: Any) -> Any:
 REJET_MOTS_CLES: tuple[str, ...] = ("total", "sous-total", "somme", "cumul")
 
 
+_REJET_RE = re.compile(r"\b(total|sous[\s-]*total|somme|cumul)\b", re.I)
+
+
 def _est_ligne_rejetee(row: tuple[Any, ...]) -> bool:
     """
     Retourne True si la ligne contient un mot-clé de rejet (total, sous-total...).
-    La détection se fait sur les cellules texte uniquement.
+    Ignore les textes longs (commentaires/observations) pour éviter les faux positifs.
     """
     for val in row:
-        if val is None:
+        if val is None or isinstance(val, int | float | bool):
             continue
         s = _normaliser(str(val))
-        if not s:
+        if not s or len(s) > 50:
             continue
-        for mot in REJET_MOTS_CLES:
-            if mot in s:
-                return True
+        if _REJET_RE.search(s):
+            return True
     return False
 
 
@@ -408,13 +410,8 @@ def ingerer_feuille(
         )
 
         # Fallback type_ouvrage_brut depuis le nom de la feuille
-        nom_feuille_upper = feuille.nom_feuille.upper()
-        type_feuille = None
-        for code in ("PMH", "HVA", "PEA", "HV"):
-            if code in nom_feuille_upper:
-                type_feuille = code
-                break
-
+        m_type = re.search(r"\b(PMH|HVA|PEA|HV)\b", feuille.nom_feuille, re.I)
+        type_feuille = m_type.group(1).upper() if m_type else None
         nb_stockees = 0
         nb_valides = 0
         for ligne in lignes:
@@ -485,9 +482,16 @@ def ingerer_fichier(
     C'est `run.py` qui le fait en fin de pipeline (cf. décision A3).
     """
 
-    feuilles = db.scalars(
-        select(Feuille).where(Feuille.id_fichier == fichier.id_fichier)
-    ).all()
+    stmt = (
+        select(Feuille)
+        .where(Feuille.id_fichier == fichier.id_fichier)
+        .order_by(Feuille.index_feuille)
+    )
+    if run.id_feuille is not None:
+        stmt = stmt.where(Feuille.id_feuille == run.id_feuille)
+
+    feuilles = db.scalars(stmt).all()
+
     if not feuilles:
         raise HTTPException(
             400, f"Aucune feuille pour le fichier {fichier.id_fichier}"

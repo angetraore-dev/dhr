@@ -46,7 +46,6 @@ def _determiner_statut_fichier(db: Session, fichier: Fichier) -> str:
         return "partiel"
     return "ingere"
 
-
 def creer_run(
     db: Session,
     id_fichier: int,
@@ -61,6 +60,14 @@ def creer_run(
     if fichier is None:
         raise HTTPException(404, f"Fichier {id_fichier} introuvable")
 
+    if id_feuille is not None:
+        feuille = db.get(Feuille, id_feuille)
+        if feuille is None or feuille.id_fichier != id_fichier:
+            raise HTTPException(
+                404,
+                f"Feuille {id_feuille} introuvable pour le fichier {id_fichier}",
+            )
+
     run = IngestionRun(
         id_fichier=id_fichier,
         id_feuille=id_feuille,
@@ -73,7 +80,6 @@ def creer_run(
     db.add(run)
     db.flush()
     return run
-
 
 def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
     """
@@ -91,6 +97,9 @@ def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
     fichier = db.get(Fichier, run.id_fichier)
     if fichier is None:
         raise ValueError(f"Fichier {run.id_fichier} introuvable")
+
+    # Capture de l'ID avant le try pour éviter tout accès post-rollback
+    fichier_id = fichier.id_fichier
 
     try:
         # 1. INGESTION
@@ -127,7 +136,7 @@ def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
 
         return {
             "id_run": id_run,
-            "id_fichier": fichier.id_fichier,
+            "id_fichier": fichier_id,
             "ingestion": resultat_ingestion,
             "rapprochement": stats_rapprochement,
             "consolidation": stats_consolidation,
@@ -136,15 +145,13 @@ def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
     except Exception as e:
         logger.exception("Erreur pipeline run %s : %s", id_run, e)
         db.rollback()
-        run = db.get(IngestionRun, id_run)
-        if run is not None:
-            run.statut = "erreur"
-            run.message = str(e)
-            run.finished_at = datetime.now(UTC)
-            db.flush()
-        # Fichier en erreur aussi
-        fichier = db.get(Fichier, fichier.id_fichier if fichier else None)
-        if fichier is not None:
-            fichier.statut = "erreur"
-            db.flush()
+        run_err = db.get(IngestionRun, id_run)
+        if run_err is not None:
+            run_err.statut = "erreur"
+            run_err.message = str(e)
+            run_err.finished_at = datetime.now(UTC)
+        fichier_err = db.get(Fichier, fichier_id)
+        if fichier_err is not None:
+            fichier_err.statut = "erreur"
+        db.commit()
         raise

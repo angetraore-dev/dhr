@@ -50,8 +50,12 @@ def _detecter_header_row(ws, max_scan: int = 30) -> int:
     best_row = 1
     best_score = 0
     for row_idx in range(1, min(max_scan + 1, (ws.max_row or 1) + 1)):
-        # row = list(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True))[0]
-        row = next(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True))
+        row = next(
+            ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True),
+            None,
+        )
+        if row is None:
+            continue
         non_vides = [str(v).strip() for v in row if v is not None and str(v).strip() != ""]
         if len(non_vides) < 5:
             continue
@@ -65,11 +69,9 @@ def _detecter_header_row(ws, max_scan: int = 30) -> int:
             return row_idx
     return best_row
 
-
 def _get_patterns() -> dict[str, list[re.Pattern]]:
     """Récupère les patterns partagés."""
     return COLUMN_PATTERNS
-
 
 # =====================================================================
 # Proposition de mapping
@@ -161,7 +163,7 @@ def proposer_mapping_fichier(
             mapping_valide = db.scalars(
                 select(MappingFeuille).where(
                     MappingFeuille.id_feuille == feuille.id_feuille,
-                    MappingFeuille.valide_par_utilisateur is True,
+                    MappingFeuille.valide_par_utilisateur.is_(True),
                 )
             ).all()
 
@@ -192,10 +194,54 @@ def proposer_mapping_fichier(
 
     return resultats
 
+# ====================================================================
+# Validation
+# ====================================================================
+_ENTITES_METADATA_AUTORISEES = {"ouvrage", "localite", "cgpe", "qualite_eau"}
+_SNAKE_CASE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _valider_colonnes_mapping(colonnes: list[MappingValidationColonne]) -> None:
+    """Valide les cibles (champs standards ou metadata.<entite>.<cle>) et l'absence de doublons."""
+    champs_standards = set(_get_patterns().keys())
+    cibles_vues: set[str] = set()
+
+    for col in colonnes:
+        cible = col.champ_cible
+        if cible is None:
+            continue
+
+        if cible in cibles_vues:
+            raise ValueError(f"Champ cible en doublon dans la feuille : '{cible}'")
+        cibles_vues.add(cible)
+
+        if cible in champs_standards:
+            continue
+
+        if cible.startswith("metadata."):
+            parts = cible.split(".")
+            if len(parts) != 3:
+                raise ValueError(
+                    f"Cible metadata invalide '{cible}' : format attendu metadata.<entite>.<cle>"
+                )
+            _, entite, cle = parts
+            if entite not in _ENTITES_METADATA_AUTORISEES:
+                raise ValueError(
+                    f"Entité metadata inconnue '{entite}' dans '{cible}'. "
+                    f"Autorisées : {sorted(_ENTITES_METADATA_AUTORISEES)}"
+                )
+            if not cle or not _SNAKE_CASE_RE.match(cle):
+                raise ValueError(
+                    f"Clé metadata invalide '{cle}' dans '{cible}' (snake_case attendu : [a-z][a-z0-9_]*)"
+                )
+            continue
+
+        raise ValueError(f"Champ cible inconnu : '{cible}'")
 
 # =====================================================================
 # Sauvegarde du mapping validé
 # =====================================================================
+
 def sauvegarder_mapping_feuille(
     db: Session,
     id_feuille: int,
@@ -209,13 +255,10 @@ def sauvegarder_mapping_feuille(
     if feuille is None:
         raise ValueError(f"Feuille {id_feuille} introuvable")
 
-    # Supprime l'ancien mapping validé
-    db.execute(
-        delete(MappingFeuille).where(
-            MappingFeuille.id_feuille == id_feuille,
-            MappingFeuille.valide_par_utilisateur is True,
-        )
-    )
+    _valider_colonnes_mapping(colonnes)
+
+    # Supprime l'ancien mapping validé MappingFeuille.valide_par_utilisateur.is_(True),
+    db.execute(delete(MappingFeuille).where(MappingFeuille.id_feuille == id_feuille))
 
     # Insère le nouveau mapping
     for col in colonnes:
@@ -246,7 +289,7 @@ def sauvegarder_mapping_feuille(
     mapping = db.scalars(
         select(MappingFeuille).where(
             MappingFeuille.id_feuille == id_feuille,
-            MappingFeuille.valide_par_utilisateur is True,
+            MappingFeuille.valide_par_utilisateur.is_(True),
         )
     ).all()
 
@@ -286,7 +329,7 @@ def charger_mapping_pour_ingestion(
     mappings = db.scalars(
         select(MappingFeuille).where(
             MappingFeuille.id_feuille == feuille.id_feuille,
-            MappingFeuille.valide_par_utilisateur is True,
+            MappingFeuille.valide_par_utilisateur.is_(True),
         )
     ).all()
 

@@ -10,6 +10,16 @@
 
 ---
 
+```text
+
+# 1. L'ordre exact des étapes
+
+- 1. Ingestion (ingerer_fichier) : Lit le fichier Excel, insère les 1306 lignes dans ligne_ingeree et met à jour run.nb_lignes_ingerees = 1306. À ce stade, elle ne touche pas au statut du fichier (qui reste en_attente).
+- 2. Rapprochement (rapprocher_lignes_run) : Associe chaque ligne ingérée à une id_localite en base.
+- 3. Consolidation (consolider_lignes_run) : Crée ou met à jour les ouvrage consolidés.
+- 4. Clôture (executer_pipeline) : Passe run.statut à 'termine' et fichier.statut à 'ingere'.
+
+```
 ## 0. Préparation
 
 ### 0.1 Variables d'environnement

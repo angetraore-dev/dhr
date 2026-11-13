@@ -139,16 +139,60 @@ def _get_or_create_localite(
 
 
 # =====================================================================
+# Helpers sélection feuille & détection entête
+# =====================================================================
+def _choisir_feuille(wb: openpyxl.Workbook, nom_feuille: str | None) -> str:
+    """Choisit la feuille cible (explicite, ou contenant localite/village, ou 1re feuille)."""
+    if not wb.sheetnames:
+        raise ValueError("Le classeur Excel ne contient aucune feuille")
+
+    if nom_feuille is not None:
+        if nom_feuille not in wb.sheetnames:
+            raise ValueError(
+                f"Feuille '{nom_feuille}' introuvable. Disponibles : {wb.sheetnames}"
+            )
+        return nom_feuille
+
+    for sheet in wb.sheetnames:
+        norm = _normaliser(sheet)
+        if "localite" in norm or "village" in norm:
+            return sheet
+
+    return wb.sheetnames[0]
+
+
+def _detecter_header_localites(ws, max_scan: int = 25) -> int:
+    """Trouve la ligne d'entête contenant les colonnes géographiques attendues."""
+    mots_cles = ("localite", "sous prefecture", "commune", "region", "departement", "q1.4", "q1.5")
+    best_row = 1
+    best_score = 0
+
+    for row_idx in range(1, min(max_scan + 1, (ws.max_row or 1) + 1)):
+        row = next(ws.iter_rows(min_row=row_idx, max_row=row_idx, values_only=True), None)
+        if row is None:
+            continue
+        score = sum(
+            1
+            for val in row
+            if val is not None and any(mc in _normaliser(str(val)) for mc in mots_cles)
+        )
+        if score > best_score:
+            best_score = score
+            best_row = row_idx
+    return best_row
+
+
+# =====================================================================
 # Import principal
 # =====================================================================
 def importer_localites(
     db: Session,
     chemin_fichier: str,
-    nom_feuille: str = "Localités",
-    header_row: int = 1,
+    nom_feuille: str | None = None,
+    header_row: int | None = None,
 ) -> dict[str, Any]:
     """
-    Importe les localités depuis la feuille spécifiée.
+    Importe les localités depuis un fichier Excel (feuille et entête auto-détectés si omis).
     Retourne les stats.
     """
     from pathlib import Path
@@ -157,14 +201,18 @@ def importer_localites(
 
     wb = openpyxl.load_workbook(chemin_fichier, read_only=True, data_only=True)
     try:
-        if nom_feuille not in wb.sheetnames:
-            raise ValueError(f"Feuille '{nom_feuille}' introuvable dans {chemin_fichier}")
-        ws = wb[nom_feuille]
+        feuille_cible = _choisir_feuille(wb, nom_feuille)
+        ws = wb[feuille_cible]
+
+        ligne_entete = header_row if header_row is not None else _detecter_header_localites(ws)
+        logger.info("Feuille sélectionnée : '%s' (header_row=%s)", feuille_cible, ligne_entete)
 
         # Lit les entêtes
-        entetes: list[str] = []
-        for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row, values_only=False)):
-            entetes.append(str(cell.value) if cell.value is not None else "")
+        row_entete = next(
+            ws.iter_rows(min_row=ligne_entete, max_row=ligne_entete, values_only=False),
+            (),
+        )
+        entetes: list[str] = [str(cell.value) if cell.value is not None else "" for cell in row_entete]
 
         # Détecte les colonnes utiles
         idx_region = idx_departement = idx_sous_pref = idx_localite = None
@@ -178,20 +226,23 @@ def importer_localites(
                 idx_region = i
             elif "q1.3" in h_norm or h_norm == "departement":
                 idx_departement = i
-            elif "q1.4" in h_norm or "commune" in h_norm:
+            elif "q1.4" in h_norm or "commune" in h_norm or "sous prefecture" in h_norm:
                 idx_sous_pref = i
-            elif "q1.5" in h_norm or h_norm == "localite":
+            elif "q1.5" in h_norm or h_norm in ("localite", "nom village", "village"):
                 idx_localite = i
-            elif "q1.6" in h_norm or "nom du campement" in h_norm:
+            elif "q1.6" in h_norm or "nom du campement" in h_norm or h_norm == "nom campement":
                 if idx_localite is None:
                     idx_localite = i
             elif h_norm.startswith("localite_ou_campement"):
                 idx_type_localite = i
-            elif h_norm == "latitude":
+            elif "latitude" in h_norm:
                 idx_lat = i
-            elif h_norm == "longitude":
+            elif "longitude" in h_norm:
                 idx_lon = i
-            elif "q1.7" in h_norm or "population" in h_norm:
+            elif (
+                ("q1.7" in h_norm or "population" in h_norm or h_norm in ("pop actuelle", "pop recensee"))
+                and idx_population is None
+            ):
                 idx_population = i
 
         logger.info(
@@ -201,7 +252,10 @@ def importer_localites(
         )
 
         if idx_localite is None or idx_sous_pref is None:
-            raise ValueError("Colonnes 'Localité' ou 'Sous-préfecture' introuvables")
+            raise ValueError(
+                f"Colonnes 'Localité' ou 'Sous-préfecture' introuvables dans '{feuille_cible}'. "
+                f"Entêtes lus : {entetes}"
+            )
 
         # Compteurs
         nb_lignes = 0
@@ -209,22 +263,20 @@ def importer_localites(
         nb_localites_existantes = 0
         nb_erreurs = 0
 
-        # Itère sur toutes les lignes (une seule fois)
+        # Itère sur toutes les lignes
         for row_idx, row in enumerate(
             ws.iter_rows(min_row=1, max_row=ws.max_row, values_only=True),
             start=1,
         ):
-            if row_idx <= header_row:
+            if row_idx <= ligne_entete:
                 continue
 
-            # Ignore les lignes vides
             if all(v is None or str(v).strip() == "" for v in row):
                 continue
 
             nb_lignes += 1
 
             try:
-                # Extrait les valeurs
                 region = row[idx_region] if idx_region is not None and idx_region < len(row) else None
                 departement = row[idx_departement] if idx_departement is not None and idx_departement < len(row) else None
                 sous_pref = row[idx_sous_pref] if idx_sous_pref < len(row) else None
@@ -238,7 +290,6 @@ def importer_localites(
                     nb_erreurs += 1
                     continue
 
-                # Crée la hiérarchie : district par défaut → région → département → sous-préfecture
                 district_defaut = _get_or_create_district_defaut(db)
 
                 region_node = None
@@ -260,7 +311,6 @@ def importer_localites(
                     parent_id=dept_node.id_geo if dept_node else (region_node.id_geo if region_node else district_defaut.id_geo),
                 )
 
-                # Type de localité (village/campement)
                 type_loc = None
                 if type_localite:
                     tl_norm = _normaliser(str(type_localite))
@@ -277,7 +327,6 @@ def importer_localites(
                     type_localite=type_loc,
                 )
 
-                # Crée la localité métier
                 lat_float = None
                 lon_float = None
                 try:
@@ -321,6 +370,7 @@ def importer_localites(
         db.flush()
 
         return {
+            "feuille": feuille_cible,
             "nb_lignes": nb_lignes,
             "nb_localites_creees": nb_localites_creees,
             "nb_localites_existantes": nb_localites_existantes,

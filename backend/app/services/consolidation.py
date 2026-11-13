@@ -38,7 +38,6 @@ def _normaliser(texte: str | None) -> str:
     texte = re.sub(r"[\s\-_]+", " ", texte).strip()
     return texte
 
-
 # =====================================================================
 # _map_* : interprétation du contenu (P11)
 # =====================================================================
@@ -60,7 +59,9 @@ def _map_nature(type_ouvrage_brut: str | None, nom_feuille: str = "") -> str:
         return "forage"
     return "inconnu"
 
-
+# =====================================================================
+# _map_* : interprétation du contenu (P11)
+# =====================================================================
 def _map_alimentation(
     type_ouvrage_brut: str | None,
     usage_ouvrage_brut: str | None,
@@ -70,37 +71,31 @@ def _map_alimentation(
     Détermine l'alimentation (PMH, HVA, PEA, HV, AUTRE).
     Priorité : nom_feuille > type_ouvrage_brut > usage_ouvrage_brut.
     """
-    # Priorité 1 : nom de la feuille
-    nom_upper = (nom_feuille or "").upper()
-    if "PMH" in nom_upper:
-        return "PMH"
-    if "HVA" in nom_upper:
-        return "HVA"
-    if "PEA" in nom_upper:
-        return "PEA"
-    if "HV" in nom_upper:
-        return "HV"
+    # Priorité 1 : nom de la feuille (mots entiers pour éviter HV dans HVA/CHV)
+    m_feuille = re.search(r"\b(PMH|HVA|PEA|HV)\b", nom_feuille or "", re.I)
+    if m_feuille:
+        return m_feuille.group(1).upper()
 
     # Priorité 2 : type_ouvrage_brut
     norm = _normaliser(type_ouvrage_brut)
-    if "pmh" in norm or "motricite" in norm or "pompe" in norm:
+    if re.search(r"\bpmh\b", norm) or "motricite" in norm or "pompe" in norm:
         return "PMH"
-    if "hva" in norm or "villageoise amelioree" in norm:
+    if re.search(r"\bhva\b", norm) or "villageoise amelioree" in norm:
         return "HVA"
-    if "hv" in norm or "villageoise" in norm:
+    if re.search(r"\bhv\b", norm) or "villageoise" in norm:
         return "HV"
-    if "pea" in norm or "autonome" in norm:
+    if re.search(r"\bpea\b", norm) or "autonome" in norm:
         return "PEA"
 
     # Priorité 3 : usage_ouvrage_brut
     norm_u = _normaliser(usage_ouvrage_brut)
-    if "pmh" in norm_u or "motricite" in norm_u or "pompe" in norm_u:
+    if re.search(r"\bpmh\b", norm_u) or "motricite" in norm_u or "pompe" in norm_u:
         return "PMH"
-    if "hva" in norm_u or "villageoise amelioree" in norm_u:
+    if re.search(r"\bhva\b", norm_u) or "villageoise amelioree" in norm_u:
         return "HVA"
-    if "hv" in norm_u or "villageoise" in norm_u:
+    if re.search(r"\bhv\b", norm_u) or "villageoise" in norm_u:
         return "HV"
-    if "pea" in norm_u or "autonome" in norm_u:
+    if re.search(r"\bpea\b", norm_u) or "autonome" in norm_u:
         return "PEA"
 
     return "AUTRE"
@@ -232,13 +227,20 @@ def _trouver_ouvrage_existant(
     nature_ouvrage: str,
     type_alimentation: str,
 ) -> Ouvrage | None:
-    """Cherche un ouvrage existant pour dédoublonnage (code_ouvrage puis tuple)."""
+    """
+    Cherche un ouvrage existant pour dédoublonnage (idempotence) :
+    1. Par code_ouvrage exact
+    2. Par tuple (id_localite, nature_ouvrage, type_alimentation, annee_realisation)
+    3. Par proximité GPS (< 20 mètres) dans la même localité avec même nature et alimentation
+    """
+    # 1. Par code_ouvrage
     code = _extraire_code_ouvrage(ligne.donnees_brutes)
     if code:
         existing = db.scalar(select(Ouvrage).where(Ouvrage.code_ouvrage == code))
         if existing is not None:
             return existing
 
+    # 2. Par tuple métier + année
     if ligne.id_localite is not None and ligne.annee_projet is not None:
         existing = db.scalar(
             select(Ouvrage).where(
@@ -250,6 +252,32 @@ def _trouver_ouvrage_existant(
         )
         if existing is not None:
             return existing
+
+    # 3. Par proximité GPS (< 20 m) pour les ouvrages sans code ni année
+    if (
+        ligne.id_localite is not None
+        and ligne.latitude_decimal is not None
+        and ligne.longitude_decimal is not None
+    ):
+        candidats = db.scalars(
+            select(Ouvrage).where(
+                Ouvrage.id_localite == ligne.id_localite,
+                Ouvrage.nature_ouvrage == nature_ouvrage,
+                Ouvrage.type_alimentation == type_alimentation,
+                Ouvrage.latitude_decimal.isnot(None),
+                Ouvrage.longitude_decimal.isnot(None),
+            )
+        ).all()
+        for cand in candidats:
+            dist_km = _distance_km(
+                db,
+                ligne.latitude_decimal,
+                ligne.longitude_decimal,
+                cand.latitude_decimal,
+                cand.longitude_decimal,
+            )
+            if dist_km <= 0.02:  # <= 20 mètres
+                return cand
 
     return None
 
@@ -287,7 +315,11 @@ def _consolider_ligne(
     code = _extraire_code_ouvrage(ligne.donnees_brutes)
     if code:
         existing_by_code = db.scalar(select(Ouvrage).where(Ouvrage.code_ouvrage == code))
-        if existing_by_code is not None:
+        if (
+            existing_by_code is not None
+            and existing_by_code.latitude_decimal is not None
+            and existing_by_code.longitude_decimal is not None
+        ):
             distance = _distance_km(
                 db,
                 ligne.latitude_decimal, ligne.longitude_decimal,
@@ -389,10 +421,10 @@ def consolider_lignes_run(db: Session, id_run: int) -> dict[str, Any]:
 
     def _est_feuille_localites(nom_feuille: str) -> bool:
         norm = _normaliser(nom_feuille)
-        return (
-            "localite" in norm
-            or "village" in norm
-            or "campement" in norm
+        mots_localite = ("localite", "village", "campement")
+        mots_ouvrage = ("ouvrage", "forage", "puits", "pmh", "hva", "pea", "hv")
+        return any(m in norm for m in mots_localite) and not any(
+            m in norm for m in mots_ouvrage
         )
 
     stats = {
