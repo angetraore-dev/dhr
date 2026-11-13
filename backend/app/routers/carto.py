@@ -19,10 +19,8 @@ from sqlalchemy.orm import Session, aliased, selectinload
 from app.auth import require_api_key
 from app.db import get_db
 from app.deps import (
-    NatureOuvrage,
     OuvrageFilters,
     StatutQualite,
-    RealisationPar,
     TypeAlimentation,
 )
 from app.models import (

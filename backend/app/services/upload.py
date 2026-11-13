@@ -52,9 +52,11 @@ def uploader_fichier(
     source = db.get(Source, id_source)
     if source is None:
         raise HTTPException(404, f"Source {id_source} introuvable")
+    # Securisation du nom de fichier (empeche le path traversal)
+    raw_name = Path(file.filename).name if file.filename else "fichier.xlsx"
 
     # Vérifie l'extension
-    nom_original = file.filename or "fichier.xlsx"
+    nom_original = raw_name or "fichier.xlsx"
     if not nom_original.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Seuls les fichiers .xlsx et .xls sont acceptés")
 
@@ -96,34 +98,38 @@ def uploader_fichier(
         chemin.unlink(missing_ok=True)
         raise HTTPException(400, f"Impossible d'analyser le fichier Excel : {e}") from e
 
-    # Crée le fichier
-    fichier = Fichier(
-        id_source=id_source,
-        nom_fichier_original=nom_original,
-        chemin_stockage=str(chemin),
-        hash_sha256=hash_sha256,
-        taille_octets=taille,
-        statut="en_attente",
-        nb_feuilles=len(feuilles_info),
-        nb_lignes_total=0,
-        est_reingestion=est_reingestion,
-        commentaire=commentaire,
-    )
-    db.add(fichier)
-    db.flush()
-
-    # Crée les feuilles
-    for fi in feuilles_info:
-        feuille = Feuille(
-            id_fichier=fichier.id_fichier,
-            nom_feuille=fi.nom,
-            index_feuille=fi.index,
-            type_contenu="inconnu",
-            nb_lignes=fi.nb_lignes,
-            statut_ingestion="en_attente",
+    try:
+        # Crée le fichier
+        fichier = Fichier(
+            id_source=id_source,
+            nom_fichier_original=nom_original,
+            chemin_stockage=str(chemin),
+            hash_sha256=hash_sha256,
+            taille_octets=taille,
+            statut="en_attente",
+            nb_feuilles=len(feuilles_info),
+            nb_lignes_total=0,
+            est_reingestion=est_reingestion,
+            commentaire=commentaire,
         )
-        db.add(feuille)
-    db.flush()
+        db.add(fichier)
+        db.flush()
+
+        # Crée les feuilles
+        for fi in feuilles_info:
+            feuille = Feuille(
+                id_fichier=fichier.id_fichier,
+                nom_feuille=fi.nom,
+                index_feuille=fi.index,
+                type_contenu="inconnu",
+                nb_lignes=fi.nb_lignes,
+                statut_ingestion="en_attente",
+            )
+            db.add(feuille)
+        db.flush()
+    except Exception:
+        chemin.unlink(missing_ok=True)
+        raise
 
     return {
         "id_fichier": fichier.id_fichier,
