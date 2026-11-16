@@ -1,19 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { Input } from '@/components/ui/input'
-
-export interface Filters {
-    region: string
-    departement: string
-    sous_prefecture: string
-    localite: string
-    type_alimentation: string
-    nature_ouvrage: string
-    realisation_par: string
-    etat: string
-    annee_min: string
-    annee_max: string
-}
+import { EMPTY_FILTERS, type Filters } from '@/lib/filters'
 
 interface Props {
     filters: Filters
@@ -34,9 +22,11 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
 
     useEffect(() => {
         if (!showGeographic) return
-        api.refGeo({ niveau: 'region' }).then((res) => {
-            setRegions(res.data as GeoOption[])
-        }).catch(() => {})
+        api.refGeo({ niveau: 'region' })
+            .then((res) => {
+                setRegions(res.data as GeoOption[])
+            })
+            .catch(() => {})
     }, [showGeographic])
 
     useEffect(() => {
@@ -44,11 +34,13 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
             setDepartements([])
             return
         }
-        const reg = regions.find(r => r.nom === filters.region)
+        const reg = regions.find((r) => r.nom === filters.region)
         if (reg) {
-            api.refGeo({ niveau: 'departement', parent_id: reg.id_geo }).then((res) => {
-                setDepartements(res.data as GeoOption[])
-            }).catch(() => {})
+            api.refGeo({ niveau: 'departement', parent_id: reg.id_geo })
+                .then((res) => {
+                    setDepartements(res.data as GeoOption[])
+                })
+                .catch(() => {})
         }
     }, [filters.region, regions])
 
@@ -57,11 +49,13 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
             setSousPrefectures([])
             return
         }
-        const dept = departements.find(d => d.nom === filters.departement)
+        const dept = departements.find((d) => d.nom === filters.departement)
         if (dept) {
-            api.refGeo({ niveau: 'sous_prefecture', parent_id: dept.id_geo }).then((res) => {
-                setSousPrefectures(res.data as GeoOption[])
-            }).catch(() => {})
+            api.refGeo({ niveau: 'sous_prefecture', parent_id: dept.id_geo })
+                .then((res) => {
+                    setSousPrefectures(res.data as GeoOption[])
+                })
+                .catch(() => {})
         }
     }, [filters.departement, departements])
 
@@ -69,9 +63,16 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
         if (!showGeographic) return
         const timer = setTimeout(() => {
             if (filters.localite.length >= 2) {
-                api.localites({ q: filters.localite, limit: 20 }).then((res) => {
-                    setLocalites(res.data.map((l: any) => ({ id: l.id_localite, nom: l.nom_usage })))
-                }).catch(() => {})
+                api.localites({ q: filters.localite, limit: 20 })
+                    .then((res) => {
+                        setLocalites(
+                            res.data.map((l) => ({
+                                id: l.id_localite,
+                                nom: l.nom_usage,
+                            })),
+                        )
+                    })
+                    .catch(() => {})
             } else {
                 setLocalites([])
             }
@@ -81,9 +82,22 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
 
     const update = (key: keyof Filters, value: string) => {
         if (key === 'region') {
-            onChange({ ...filters, region: value, departement: '', sous_prefecture: '' })
+            onChange({
+                ...filters,
+                region: value,
+                departement: '',
+                sous_prefecture: '',
+                localite: '',
+            })
         } else if (key === 'departement') {
-            onChange({ ...filters, departement: value, sous_prefecture: '' })
+            onChange({
+                ...filters,
+                departement: value,
+                sous_prefecture: '',
+                localite: '',
+            })
+        } else if (key === 'sous_prefecture') {
+            onChange({ ...filters, sous_prefecture: value, localite: '' })
         } else {
             onChange({ ...filters, [key]: value })
         }
@@ -91,12 +105,23 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
 
     return (
         <div className="bg-white border rounded-lg p-4 space-y-3">
-            <h3 className="font-medium text-sm text-gray-700">Filtres</h3>
+            <div className="flex items-center justify-between">
+                <h3 className="font-medium text-sm text-gray-700">Filtres</h3>
+                <button
+                    type="button"
+                    onClick={() => onChange(EMPTY_FILTERS)}
+                    className="text-xs text-blue-600 hover:underline"
+                >
+                    Réinitialiser
+                </button>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                 {/* Alimentation */}
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Alimentation</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Alimentation
+                    </label>
                     <select
                         value={filters.type_alimentation}
                         onChange={(e) => update('type_alimentation', e.target.value)}
@@ -113,7 +138,9 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
 
                 {/* Nature */}
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Nature</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Nature
+                    </label>
                     <select
                         value={filters.nature_ouvrage}
                         onChange={(e) => update('nature_ouvrage', e.target.value)}
@@ -127,7 +154,9 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
 
                 {/* Réalisation */}
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Réalisation</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Réalisation
+                    </label>
                     <select
                         value={filters.realisation_par}
                         onChange={(e) => update('realisation_par', e.target.value)}
@@ -141,7 +170,9 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
 
                 {/* État */}
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">État</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                        État
+                    </label>
                     <select
                         value={filters.etat}
                         onChange={(e) => update('etat', e.target.value)}
@@ -159,7 +190,9 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
                     <>
                         {/* Région */}
                         <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Région</label>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Région
+                            </label>
                             <select
                                 value={filters.region}
                                 onChange={(e) => update('region', e.target.value)}
@@ -167,14 +200,18 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
                             >
                                 <option value="">Toutes</option>
                                 {regions.map((r) => (
-                                    <option key={r.id_geo} value={r.nom}>{r.nom}</option>
+                                    <option key={r.id_geo} value={r.nom}>
+                                        {r.nom}
+                                    </option>
                                 ))}
                             </select>
                         </div>
 
                         {/* Département */}
                         <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Département</label>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Département
+                            </label>
                             <select
                                 value={filters.departement}
                                 onChange={(e) => update('departement', e.target.value)}
@@ -183,14 +220,18 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
                             >
                                 <option value="">Tous</option>
                                 {departements.map((d) => (
-                                    <option key={d.id_geo} value={d.nom}>{d.nom}</option>
+                                    <option key={d.id_geo} value={d.nom}>
+                                        {d.nom}
+                                    </option>
                                 ))}
                             </select>
                         </div>
 
                         {/* Sous-préfecture */}
                         <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Sous-préfecture</label>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Sous-préfecture
+                            </label>
                             <select
                                 value={filters.sous_prefecture}
                                 onChange={(e) => update('sous_prefecture', e.target.value)}
@@ -199,14 +240,18 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
                             >
                                 <option value="">Toutes</option>
                                 {sousPrefectures.map((sp) => (
-                                    <option key={sp.id_geo} value={sp.nom}>{sp.nom}</option>
+                                    <option key={sp.id_geo} value={sp.nom}>
+                                        {sp.nom}
+                                    </option>
                                 ))}
                             </select>
                         </div>
 
                         {/* Localité */}
                         <div className="relative">
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Localité</label>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Localité
+                            </label>
                             <Input
                                 placeholder="Rechercher..."
                                 value={filters.localite}
@@ -235,7 +280,9 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
 
                 {/* Année min */}
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Année min</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Année min
+                    </label>
                     <Input
                         type="number"
                         value={filters.annee_min}
@@ -247,7 +294,9 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
 
                 {/* Année max */}
                 <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Année max</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Année max
+                    </label>
                     <Input
                         type="number"
                         value={filters.annee_max}

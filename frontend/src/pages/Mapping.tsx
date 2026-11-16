@@ -9,20 +9,22 @@ import { Input } from '@/components/ui/input'
 
 const CHAMPS_STANDARDS = [
     { value: 'region_brute', label: 'Région' },
-    { value: 'departement_brute', label: 'Département' },
+    { value: 'departement_brut', label: 'Département' },
     { value: 'sous_prefecture_brute', label: 'Sous-préfecture' },
     { value: 'localite_brute', label: 'Localité' },
     { value: 'type_localite_brut', label: 'Type de localité' },
     { value: 'latitude_decimal', label: 'Latitude' },
     { value: 'longitude_decimal', label: 'Longitude' },
     { value: 'type_ouvrage_brut', label: "Type d'ouvrage" },
+    { value: 'usage_ouvrage_brut', label: "Usage / Alimentation" },
     { value: 'etat_ouvrage_brut', label: "État de l'ouvrage" },
     { value: 'annee_projet', label: 'Année du projet' },
     { value: 'bailleur_brut', label: 'Bailleur' },
     { value: 'a_cgpe', label: 'Existence CGPE' },
+    { value: 'qualite_eau', label: "Qualité de l'eau (général)" },
 ]
 
-type Destination = 'standard' | 'ouvrage' | 'localite' | 'cgpe' | 'ignore'
+type Destination = 'standard' | 'ouvrage' | 'localite' | 'cgpe' | 'qualite_eau' | 'ignore'
 
 interface ColonneState {
     entete_brut: string
@@ -37,6 +39,7 @@ function parseChampCible(champ: string | null): { dest: Destination, std: string
     if (champ.startsWith('metadata.ouvrage.')) return { dest: 'ouvrage', std: '', key: champ.replace('metadata.ouvrage.', '') }
     if (champ.startsWith('metadata.localite.')) return { dest: 'localite', std: '', key: champ.replace('metadata.localite.', '') }
     if (champ.startsWith('metadata.cgpe.')) return { dest: 'cgpe', std: '', key: champ.replace('metadata.cgpe.', '') }
+    if (champ.startsWith('metadata.qualite_eau.')) return { dest: 'qualite_eau', std: '', key: champ.replace('metadata.qualite_eau.', '') }
     return { dest: 'standard', std: champ, key: '' }
 }
 
@@ -46,6 +49,7 @@ function buildChampCible(col: ColonneState): string | null {
     if (!col.metadata_key) return null
     return `metadata.${col.destination}.${col.metadata_key}`
 }
+
 
 export default function Mapping() {
     const { id } = useParams<{ id: string }>()
@@ -190,6 +194,7 @@ export default function Mapping() {
                                     <option value="ouvrage">Métadonnée Ouvrage</option>
                                     <option value="localite">Métadonnée Localité</option>
                                     <option value="cgpe">Métadonnée CGPE</option>
+                                    <option value="qualite_eau">Qualité de l'eau (indicateur)</option>
                                     <option value="ignore">Ignorer</option>
                                 </select>
                             </td>
@@ -209,7 +214,7 @@ export default function Mapping() {
                                     </select>
                                 )}
 
-                                {(col.destination === 'ouvrage' || col.destination === 'localite' || col.destination === 'cgpe') && (
+                                {(col.destination === 'ouvrage' || col.destination === 'localite' || col.destination === 'cgpe' ||  col.destination === 'qualite_eau') && (
                                     <div className="flex items-center gap-2">
                                         <Tag className="w-4 h-4 text-gray-400" />
                                         <Input

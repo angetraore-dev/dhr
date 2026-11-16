@@ -8,11 +8,11 @@ interface Props {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-    PMH: '#2563eb',   // bleu
-    HVA: '#16a34a',   // vert
-    PEA: '#ea580c',   // orange
-    HV: '#9333ea',    // violet
-    AUTRE: '#6b7280', // gris
+    PMH: '#2563eb',
+    HVA: '#16a34a',
+    PEA: '#ea580c',
+    HV: '#9333ea',
+    AUTRE: '#6b7280',
 }
 
 function getColor(type: string | undefined): string {
@@ -41,6 +41,7 @@ function buildPopupHtml(p: Record<string, any>): string {
 
     let html = mainLines.join('<br/>')
 
+    // Détails (metadata)
     const meta = p.metadata as Record<string, unknown> | undefined
     if (meta && Object.keys(meta).length > 0) {
         const rows = Object.entries(meta)
@@ -58,6 +59,32 @@ function buildPopupHtml(p: Record<string, any>): string {
       <details style="margin-top:8px;">
         <summary style="cursor:pointer;color:#2563eb;font-size:12px;font-weight:500;user-select:none;">
           Détails (${Object.keys(meta).length})
+        </summary>
+        <table style="font-size:12px;margin-top:6px;border-collapse:collapse;">
+          ${rows}
+        </table>
+      </details>
+    `
+    }
+
+    // Qualité de l'eau (F2)
+    const qualiteEau = p.qualite_eau as Record<string, unknown> | undefined
+    if (qualiteEau && Object.keys(qualiteEau).length > 0) {
+        const rows = Object.entries(qualiteEau)
+            .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+            .map(
+                ([k, v]) =>
+                    `<tr>
+             <td style="font-weight:500;padding-right:8px;vertical-align:top;color:#374151;">${_escape(k)}</td>
+             <td style="color:#111827;">${_escape(v)}</td>
+           </tr>`,
+            )
+            .join('')
+
+        html += `
+      <details style="margin-top:8px;">
+        <summary style="cursor:pointer;color:#2563eb;font-size:12px;font-weight:500;user-select:none;">
+          Qualité de l'eau (${Object.keys(qualiteEau).length})
         </summary>
         <table style="font-size:12px;margin-top:6px;border-collapse:collapse;">
           ${rows}
@@ -102,27 +129,36 @@ export function MapView({ data, height = '600px' }: Props) {
 
         layerRef.current = L.geoJSON(undefined, {
             pointToLayer: (feature, latlng) => {
-                const type = feature.properties?.type_alimentation
-                const nature = feature.properties?.nature_ouvrage
+                const props = (feature.properties || {}) as Record<string, any>
+                const type = props.type_alimentation
+                const nature = props.nature_ouvrage
                 const color = getColor(type)
 
+                // Carré pour les puits (F2)
                 if (nature === 'puits') {
-                    // Carré pour les puits
-                    return L.circleMarker(latlng, {
-                        radius: 6,
-                        fillColor: color,
-                        color: '#ffffff',
-                        weight: 1.5,
-                        opacity: 1,
-                        fillOpacity: 0.9,
-                        // On utilise un cercle mais on pourrait aussi utiliser un carré
-                        // ou une icône différente. Pour le MVP, on garde un cercle mais
-                        // on pourrait mettre un liseré plus épais.
-                        dashArray: '3,3'
+                    return L.marker(latlng, {
+                        icon: L.divIcon({
+                            className: 'dhr-marker',
+                            html: `<svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" fill="${color}" stroke="#ffffff" stroke-width="1.5"/></svg>`,
+                            iconSize: [14, 14],
+                            iconAnchor: [7, 7],
+                        }),
                     })
                 }
 
-                // Cercle plein pour les forages
+                // Losange pour les inconnus (F2)
+                if (nature === 'inconnu') {
+                    return L.marker(latlng, {
+                        icon: L.divIcon({
+                            className: 'dhr-marker',
+                            html: `<svg width="14" height="14" viewBox="0 0 14 14"><polygon points="7,1 13,7 7,13 1,7" fill="${color}" stroke="#ffffff" stroke-width="1.5"/></svg>`,
+                            iconSize: [14, 14],
+                            iconAnchor: [7, 7],
+                        }),
+                    })
+                }
+
+                // Cercle plein pour les forages (défaut)
                 return L.circleMarker(latlng, {
                     radius: 6,
                     fillColor: color,
