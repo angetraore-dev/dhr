@@ -1,340 +1,276 @@
 
 ---
 
-# 📦 Handoff complet — Projet DHR (v1.1, 2026-11-12)
+# HANDOFF TECHNIQUE — Projet DHR (v1.2)
 
-Document de reprise mis à jour après la session de corrections Phase D. Il **complète** la Bible (`DHR.md`) et la Constitution (`CONSTITUTION.md`), qui font autorité.
-
----
-
-## 1. État d'avancement
-
-### 1.1 Ce qui est terminé (Phase C + Phase D partielle)
-
-| Élément | Statut | Détail |
-|---------|--------|--------|
-| **Bible v1.0** (`DHR.md`) | ✅ | 8 sections, fait autorité |
-| **Constitution v1.0** (`CONSTITUTION.md`) | ✅ | Contrat opérationnel |
-| **Phase A — Bible** | ✅ | Sections 1 → 8 |
-| **Phase B — Constitution** | ✅ | Document 2–3 pages |
-| **Phase C — Socle DB** | ✅ | `schema.sql` + `0001_initial.py` + `models.py` alignés |
-| **Backend démarre** | ✅ | `/health` OK, migrations passent |
-| **Tests backend** | ✅ | **52 passed** (0 échec) |
-| **B1** — `export.py` importe `TypeOuvrage` | ✅ | Corrigé |
-| **B2–B4** — `models.py` (noms, CHECK, UNIQUE) | ✅ | Corrigés |
-| **B5** — `ingestion.py` (rejets) | ✅ | Corrigé |
-| **B6** — `consolidation.py` (3 règles manquantes) | ✅ | Corrigé |
-| **I1–I4** — `ingestion.py` / `rapprochement.py` | ✅ | Corrigés |
-| **B10** — `main.py` (RFC 7807 + lifespan) | ✅ | Appliqué, 52 tests passent |
-| **A1–A4** — `carto.py` (vue `v_points_par_fichier`, `qualite_eau`, `bailleur` EXISTS, filtres métier) | ✅ | Appliqué |
-| **C8** — `carto.py` (`Literal`) | ✅ | Appliqué |
-| **B1** — `referentiels.py` (`geom_centre`) | ✅ | Appliqué |
-| **B2** — `referentiels.py` (N+1 `list_ref_geo`) | ✅ | Appliqué (chargement groupé des parents) |
-| **B3** — `referentiels.py` (N+1 `get_ref_geo_chemin`) | ✅ | Appliqué (CTE récursive) |
-| **B9** — `deps.py` (`Literal` + `StatutQualite`) | ✅ | Appliqué |
-| **carto.py (1,2,3,5,6)** — `WHERE` dynamique, `qualite_eau` cohérent, `source`/`date_ingestion` exposés, `StatutQualite` centralisé, `row._mapping` | ✅ | Appliqué |
-| **Bug Pydantic `TypeAlimentation`** — `from __future__ import annotations` retiré de `deps.py` et `carto.py` | ✅ | **Résolu** (backend démarre) |
-
-### 1.2 Ce qui reste à faire (Phase D)
-
-| Élément | Statut | Détail |
-|---------|--------|--------|
-| **Audit `schemas/*`** | ⏳ | `schemas/ouvrages.py`, `fichiers.py`, `referentiels.py`, `common.py`, `qualite.py` (audit partiel fait, RAS bloquant) |
-| **Audit `routers/*`** | ✅ | Fait (carto, fichiers, ingestion, ouvrages, qualite, referentiels) |
-| **Audit `deps.py`** | ✅ | Fait (B9) |
-| **Audit `main.py`** | ✅ | Fait (B10) |
-| **B6** — `fichiers.py` (imports dupliqués en bas) | ⏳ | À corriger |
-| **B4** — `ouvrages.py` (`RefGeoAdmin.__table__.alias` → `aliased()`) | ⏳ | À corriger |
-| **C9** — `ingestion.py` (curseur opaque base64) | ⏳ | À corriger |
-| **C3–C5** — `schemas/*` (docstrings, `FinancementResume.bailleur: str \| None`) | ⏳ | À corriger |
-| **B7** — `fichiers.py` (unicité `entete_brut` dans `MappingValidation`) | ⏳ | À corriger |
-| **F1–F9** — Frontend | ⏳ | À corriger |
-| **O1–O5, OI1–OI2** — `openapi.yaml` | ⏳ | À aligner |
-| **M1–M6** — `metadata_conventions.md` | ⏳ | À réécrire |
-| **Script `tests-api.md`** | ⏳ | À exécuter (bout-en-bout) |
-| **CI GitHub Actions** | ⏳ | À vérifier sur GitHub |
+**Date** : 16 novembre 2026
+**Statut global** : Backend 100 % validé (54/54 tests, Ruff OK). Frontend en cours de validation (pages : Fichiers, Mapping, Carte, Liste, Qualité, Paramètres). Corrections d'écarts en cours.
 
 ---
 
-## 2. Architecture
+## 1. Architecture & Modèle Métier
 
-### 2.1 Stack technique (inchangée)
+### 1.1 Stack
 
 | Couche | Technologie | Version |
 |--------|-------------|---------|
-| Base de données | PostgreSQL + PostGIS | 16 + 3.4 |
+| Base | PostgreSQL + PostGIS | 16 + 3.4 |
 | Backend | Python + FastAPI | 3.12 + 0.115 |
 | ORM | SQLAlchemy + GeoAlchemy2 | 2.0 + 0.16 |
 | Validation | Pydantic | 2.9 |
 | Migrations | Alembic | 1.13 |
-| Parsing Excel | openpyxl | 3.1 |
-| Export Excel | XlsxWriter | 3.2 |
-| Auth | python-jose (JWT) + API key | — |
-| Frontend | React + Vite + TypeScript | 18 + 5.4 |
+| Excel | openpyxl + XlsxWriter | 3.1 + 3.2 |
+| Frontend | React + Vite + TS | 18 + 5.4 |
 | UI | Tailwind + shadcn/ui | 3.4 |
-| Carto | Leaflet + Esri World Imagery | 1.9 |
+| Carto | Leaflet + Esri | 1.9 |
 | État API | TanStack Query | 5.59 |
-| Conteneurs | Docker Compose | — |
 
-### 2.2 Structure backend (inchangée)
+### 1.2 Modèle métier (ADR-014)
 
-```text
-backend/
-├── app/
-│   ├── main.py              # ✅ RFC 7807 + lifespan
-│   ├── config.py
-│   ├── db.py
-│   ├── auth.py
-│   ├── deps.py              # ✅ Literal + StatutQualite (sans PEP 563)
-│   ├── models.py            # ✅ 13 modèles alignés
-│   ├── schemas/             # ⏳ Audit partiel
-│   ├── routers/
-│   │   ├── carto.py         # ✅ A1–A4 + C8 + (1,2,3,5,6) + StatutQualite
-│   │   ├── fichiers.py      # ⏳ B6 (imports dupliqués), B7 (unicité)
-│   │   ├── ingestion.py     # ⏳ C9 (curseur opaque)
-│   │   ├── ouvrages.py      # ⏳ B4 (aliased)
-│   │   ├── qualite.py       # ✅
-│   │   └── referentiels.py  # ✅ B1, B2, B3
-│   └── services/            # ✅ B1–B6, I1–I4 corrigés
-├── alembic/versions/0001_initial.py
-├── scripts/
-├── tests/                   # ✅ 52 passed
-├── sql/schema.sql           # ✅
-└── Dockerfile
-```
+- **3 champs sémantiques** sur `ouvrage` :
+    - `nature_ouvrage` : `puits` | `forage` | `inconnu`
+    - `type_alimentation` : `PMH` | `HVA` | `PEA` | `HV` | `AUTRE`
+    - `realisation_par` : `public` | `prive` | `inconnu`
+- **Pas de `type_ouvrage`** legacy.
+- **Pas de `district`** (sauf KPI export).
+- `metadata` (JSONB) + `qualite_eau` (JSONB, nullable).
 
 ---
 
-## 3. Corrections Phase D — Détail
+## 2. Backend — État validé
 
-### 3.1 `main.py` (B10)
+### 2.1 Tests & lint
 
-- `exception_handler` pour `StarletteHTTPException` → Problem RFC 7807.
-- `exception_handler` pour `RequestValidationError` → Problem + `errors: [{field, message}]`.
-- `exception_handler` pour `Exception` → Problem 500 (filet de sécurité).
-- `@app.on_event("startup")` → `lifespan` (async context manager).
+- **54/54 tests `pytest`** passent.
+- **`ruff check`** : 0 erreur.
 
-**Mapping code HTTP → slug** (aligné Bible § 4.4) :
-```
-400 → bad-request, 401 → unauthorized, 403 → forbidden,
-404 → not-found, 409 → conflict, 413 → payload-too-large,
-422 → validation, 500 → internal
-```
+### 2.2 Services
 
-### 3.2 `deps.py` (B9 + bug Pydantic)
+| Service | Statut |
+|---------|--------|
+| `upload.py` | ✅ SHA-256, détection feuilles, 409 sur doublon |
+| `mapping.py` | ✅ Proposition auto + validation |
+| `ingestion.py` | ✅ Rejets détectés, `nb_lignes_total = stockées + rejetées` |
+| `rapprochement.py` | ✅ Exact > alias > trigram, `message_qualite` strict |
+| `consolidation.py` | ✅ Dédoublonnage 3 niveaux (code, tuple, GPS ≤ 20 m), `qualite_eau` |
+| `export.py` | ✅ CTE récursive ORM, KPI `par_district` |
+| `import_localites.py` | ✅ Détection auto feuille + en-tête |
 
-- `TypeAlimentation`, `NatureOuvrage`, `RealisationPar`, `EtatOuvrage`, `StatutQualite` définis comme `Literal`.
-- `OuvrageFilters` utilise ces `Literal` (422 sur valeur invalide).
-- **`from __future__ import annotations` retiré** (sinon Pydantic échoue à résoudre `TypeAlimentation`).
+### 2.3 Données en base (exemple)
 
-### 3.3 `carto.py` (A1–A4 + C8 + 1,2,3,5,6)
+- **679 nouvelles localités** + **628 existantes** (0 erreur).
+- **`Forage.xlsx`** : 1306 lignes (1 rejetée), 1306 rapprochées (0 non résolue).
+- **1070 ouvrages** consolidés.
 
-- Mode Fichier : lit `v_points_par_fichier` (feuilles `Localités` exclues).
-- `properties` exposent le **brut** (`type_ouvrage_brut`, `etat_ouvrage_brut`, etc.).
-- `qualite_eau` dans `properties` ET `details` (`or {}` partout).
-- `source` et `date_ingestion` ajoutés aux `properties`.
-- Filtre `bailleur` via `EXISTS` (pas de doublons).
-- `nature_ouvrage`/`realisation_par` **retirés** du mode Fichier (A4).
-- `type_alimentation` : regex `\m...\M` (évite `HV` ⊂ `HVA`).
-- `_VUE_FICHIER_SELECT` sans `WHERE` (ajouté dynamiquement).
-- `StatutQualite` importé depuis `deps.py`.
-- **`from __future__ import annotations` retiré**.
+### 2.4 Corrections backend appliquées (Phase D)
 
-### 3.4 `referentiels.py` (B1, B2, B3)
-
-- `get_localite` : `geom_centre` construit depuis `lat`/`lon` (ordre `[lon, lat]`).
-- `list_ref_geo` : chargement groupé des parents (plus de N+1).
-- `get_ref_geo_chemin` : CTE récursive (1 requête au lieu de N).
-- `list_localites` : `unaccent` pour recherche insensible aux accents.
-
----
-
-## 4. Écarts restants (à corriger en Phase D)
-
-### 4.1 Backend
-
-| # | Écart | Fichier | Correction |
-|---|-------|---------|-----------|
-| **B6** | Imports dupliqués en bas de fichier | `fichiers.py` | Supprimer le bloc du bas |
-| **B7** | Pas d'unicité `entete_brut` dans `MappingValidation.colonnes` | `fichiers.py` + `schemas/fichiers.py` | `field_validator` |
-| **B4** | `RefGeoAdmin.__table__.alias(...)` au lieu de `aliased()` | `ouvrages.py` | Harmoniser sur `aliased()` |
-| **C9** | Curseur `int` en clair au lieu de base64 | `ingestion.py` | Base64 (comme `ouvrages.py`) |
-| **C3** | Commentaire confus sur `type_ouvrage_inconnu` | `schemas/ouvrages.py` | Reformuler |
-| **C4** | `FinancementResume.bailleur: str` (magic `"?"`) | `schemas/ouvrages.py` | `str \| None` |
-| **C5** | Pas de `Field(description=...)` sur `metadata`/`qualite_eau` | `schemas/ouvrages.py` | Ajouter |
-| **C10** | `get_ligne` sans `response_model` | `ingestion.py` | `LigneIngereeSchema \| LigneIngereeAvecBrut` |
-| **`RunPlage`** | Pas de validation `ligne_fin >= ligne_debut` | `schemas/ingestion.py` | `model_validator` |
-| **`type_ouvrage_brut`** | Filtre absent du mode Fichier | `carto.py` | Ajouter (à trancher avec frontend) |
-
-### 4.2 Frontend (F1–F9)
-
-| # | Écart | Fichier | Correction |
-|---|-------|---------|-----------|
-| **F1** | `CHAMPS_STANDARDS` sans `usage_ouvrage_brut` | `Mapping.tsx` | Ajouter |
-| **F2** | Forme = nature approximée par `dashArray` | `MapView.tsx` | Vraies formes (cercle/carré/losange) |
-| **F3** | `window.open` pour l'export | `Liste.tsx` | `fetch` + `blob` |
-| **F4** | `OLD_Carte.tsx` traîne | `pages/` | Supprimer |
-| **F5** | Pas de redirection 401 | `api.ts` | Ajouter |
-| **F6** | Textes « Chargement... » | Toutes les pages | `Skeleton` |
-| **F7** | `Liste.tsx` et `Qualite.tsx` stubs | `pages/` | Implémenter |
-| **F8** | Pas de page détail fichier | — | V2 (accepté) |
-| **F9** | Pas de bouton « Supprimer le JWT » | `Parametres.tsx` | Ajouter |
-
-### 4.3 Documentation
-
-| # | Écart | Fichier | Correction |
-|---|-------|---------|-----------|
-| **O1–O5, OI1–OI2** | `openapi.yaml` non aligné | `openapi.yaml` | Régénérer |
-| **M1–M6** | `metadata_conventions.md` obsolète | `metadata_conventions.md` | Réécrire |
+| # | Écart | Fichier | Statut |
+|---|-------|---------|--------|
+| B1 | `export.py` importe `TypeOuvrage` | `export.py` | ✅ |
+| B2–B4 | `models.py` (noms, CHECK, UNIQUE) | `models.py` | ✅ |
+| B5 | `ingestion.py` (rejets) | `ingestion.py` | ✅ |
+| B6 | `consolidation.py` (3 règles) | `consolidation.py` | ✅ |
+| I1–I4 | `ingestion.py` / `rapprochement.py` | — | ✅ |
+| B10 | RFC 7807 + lifespan | `main.py` | ✅ |
+| A1–A4 | `carto.py` (vue, `qualite_eau`, `bailleur` EXISTS, filtres) | `carto.py` | ✅ |
+| C8 | `carto.py` (`Literal`) | `carto.py` | ✅ |
+| B1–B3 | `referentiels.py` (`geom_centre`, N+1, CTE) | `referentiels.py` | ✅ |
+| B9 | `deps.py` (`Literal` + `StatutQualite`) | `deps.py` | ✅ |
+| B6 | `fichiers.py` (imports dupliqués) | `fichiers.py` | ✅ |
+| B7 | `MappingValidation` unicité `entete_brut` | `schemas/fichiers.py` | ✅ |
+| Bug Pydantic | `from __future__ import annotations` retiré de `deps.py`, `carto.py`, `fichiers.py` | — | ✅ |
 
 ---
 
-## 5. Commandes de reprise
+## 3. Frontend — État en cours
 
-### 5.1 Démarrage
+### 3.1 Fichiers validés
+
+| Fichier | Statut | Détail |
+|---------|--------|--------|
+| `src/lib/api.ts` | ✅ | Types complets, `exportOuvrages` (fetch+blob), 401 redirect, `toQuery`, `parseProblem` |
+| `vite.config.ts` | ✅ | Proxy `/api` → `backend:8000/v1` |
+| `src/lib/filters.ts` | ✅ | `Filters` + `EMPTY_FILTERS` centralisés |
+| `src/components/FiltersPanel.tsx` | ✅ | Cascade géo, reset, debounce, `EMPTY_FILTERS` importé |
+| `src/pages/Liste.tsx` | ✅ | Tableau, export, modale détail, `FiltersPanel` importé |
+| `src/pages/Carte.tsx` | ⚠️ | Corrigé (imports), **reste : sélecteur `id_run` + palette par qualité en mode Fichier** |
+| `src/components/MapView.tsx` | ⚠️ | Formes (carré/losange), `qualite_eau` popup, **reste : palette conditionnelle `mode`** |
+| `src/pages/Qualite.tsx` | ⚠️ | Corrigé, **reste : `message_qualite` (backend) + skeletons** |
+
+### 3.2 Fichiers à valider
+
+| Fichier | Statut |
+|---------|--------|
+| `src/pages/Fichiers.tsx` | ⏳ |
+| `src/pages/Mapping.tsx` | ⏳ |
+| `src/components/UploadDialog.tsx` | ⏳ |
+| `src/components/RunStatus.tsx` | ⏳ |
+| `src/pages/Parametres.tsx` | ⏳ |
+| `src/App.tsx` | ⏳ |
+
+### 3.3 Écarts frontend identifiés
+
+| # | Écart | Fichier | Priorité |
+|---|-------|---------|----------|
+| F2a | Formes (carré/losange) | `MapView.tsx` | ✅ fait |
+| F2b | `qualite_eau` popup | `MapView.tsx` | ✅ fait |
+| F2c | Palette conditionnelle (qualité en mode Fichier) | `MapView.tsx` + `Carte.tsx` | ⏳ |
+| F3 | Export `fetch` + `blob` | `api.ts` | ✅ fait |
+| F5 | 401 → redirect `/parametres` | `api.ts` | ✅ fait |
+| F6 | Skeletons | Toutes les pages | ⏳ |
+| **Nouveau** | Sélecteur `id_run` en mode Fichier | `Carte.tsx` | ⏳ |
+
+---
+
+## 4. Décisions actées dans cette session
+
+### 4.1 Décisions frontend
+
+| # | Décision | Justification |
+|---|----------|---------------|
+| D1 | `Filters` + `EMPTY_FILTERS` dans `src/lib/filters.ts` | Évite duplication, warning HMR |
+| D2 | Sélecteur `id_run` dans `Carte.tsx` (mode Fichier) | Résout le problème des 3098 points ; respecte la Bible (G5, G8) |
+| D3 | Palette par `statut_qualite` en mode Fichier (à implémenter) | Cohérent avec la sémantique (brut = qualité) |
+| D4 | Pas de dédoublonnage à l'ingestion | Contredit la Bible (G5, G8) ; préférer le diff entre runs (V2) |
+| D5 | Lignes `rejete` non stockées | Conforme à la Bible § 3.1.6 ; V2 pour les stocker |
+
+### 4.2 Décisions backend (rappel)
+
+| # | Décision | Référence |
+|---|----------|-----------|
+| D6 | `message_qualite` à ajouter dans `LigneIngeree` (schéma) | Nécessaire pour `Qualite.tsx` |
+| D7 | 6 statuts de qualité | Bible § 3.1.6 |
+| D8 | Dédoublonnage 3 niveaux | Bible § 3.2.3 |
+
+---
+
+## 5. Prochaines étapes (par ordre)
+
+### 5.1 Immédiat (frontend)
+
+1. **`Carte.tsx`** : sélecteur `id_run` en mode Fichier (D2).
+2. **`MapView.tsx`** : palette conditionnelle `mode` (D3).
+3. **`Qualite.tsx`** : vérifier l'affichage de `message_qualite` (D6).
+4. **`Fichiers.tsx`**, **`Mapping.tsx`**, **`UploadDialog.tsx`**, **`RunStatus.tsx`**, **`Parametres.tsx`**, **`App.tsx`** : audit + correction.
+
+### 5.2 Court terme (backend)
+
+5. **`schemas/ingestion.py`** : ajouter `message_qualite: str | None` à `LigneIngeree`.
+
+### 5.3 V2 (documenté)
+
+6. **Stocker les lignes `rejete`** (Bible § 3.1.6, exception V2).
+7. **Endpoint `/runs/{id}/diff/{id_autre}`** (comparer deux runs).
+8. **UI de gestion des versions** (Bible § 2.3.5, G5).
+
+---
+
+## 6. Commandes utiles
 
 ```powershell
-# Démarrer
-docker compose up -d --build
+# Backend
+docker compose exec -T backend pytest -q
+docker compose exec -T backend ruff check app
+
+# Frontend
+cd frontend
+npm run typecheck
+npm run build
 
 # Logs
 docker compose logs -f backend
+docker compose logs -f frontend
 
-# Vérifier que le backend démarre sans traceback
-docker compose logs --tail=30 backend
+# URLs
+# Frontend : http://localhost:5173
+# Backend  : http://localhost:8000/docs
+# API key  : dhr_dev_read_key_change_me
 ```
-
-### 5.2 Tests
-
-```powershell
-# Backend (52 attendus)
-docker compose exec -T backend pytest -q
-
-# Avec couverture
-docker compose exec -T backend pytest --cov=app --cov-report=term-missing
-
-# Lint
-docker compose exec -T backend ruff check app
-docker compose exec -T backend mypy app/services app/models
-```
-
-### 5.3 Reset complet (si besoin)
-
-```powershell
-# DB
-docker compose exec -T db psql -U dhr -d dhr -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-docker compose exec -T backend alembic upgrade head
-
-# Uploads
-docker compose exec -T backend rm -rf /app/uploads/*
-
-# Réimporter les localités
-docker compose exec -T backend python -u /app/scripts/import_localites.py /app/tests/fixtures/fichier1.xlsx
-```
-
-### 5.4 Script de test API bout-en-bout
-
-Le script `tests-api.md` (à la racine) couvre :
-- Import localités (CLI)
-- Upload fichier
-- Mapping (proposition + validation)
-- Ingestion (run complet + polling)
-- Rapprochement (vérification via lignes)
-- Consolidation (vérification via ouvrages)
-- Carto (mode Tous + mode Fichier + GeoJSON)
-- Qualité (dashboard + cohérence des compteurs)
-- Export Excel (avec/sans Synthèse, avec/sans metadata, filtres)
-- Export CSV
-- Erreurs RFC 7807 (401, 404, 422)
-
-**À exécuter** après le push, section par section.
 
 ---
 
-## 6. Décisions actées (rappel)
+## 7. Points d'attention
 
-### 6.1 Les 10 décisions de la Bible (§ 1.4)
+### 7.1 Mode Fichier — 3098 points
 
-1. Un ouvrage sans GPS n'existe pas.
-2. Localités importées manuellement (CLI).
-3. 3 champs sémantiques : `nature_ouvrage`, `type_alimentation`, `realisation_par`.
-4. Attributs non mappés → JSONB (`brut_<entête>` + `metadata.<entité>.<clé>`).
-5. Données sanitaires → `qualite_eau` (JSONB, nullable).
-6. Pas de filtre `district` (KPI dans l'export Excel uniquement).
-7. Mapping proposé auto, corrigeable via UI.
-8. Repartir sur des bases saines (migration initiale unique).
-9. 6 statuts de qualité implémentés.
-10. Métadonnées explicites via `metadata.<entité>.<clé>`.
+**Cause** : 3 runs × 1306 lignes = 3918 (ou 3098 si certains runs ont moins de lignes). La vue `v_points_par_fichier` retourne toutes les lignes.
 
-### 6.2 Décisions de la session
+**Solution** : sélecteur `id_run` dans `Carte.tsx` (D2). **Pas de modification backend nécessaire** (`carto.py` accepte déjà `?id_run=X`).
 
-| Date | Décision |
-|------|----------|
-| 2026-11-12 | **B3 corrigé** (CTE récursive pour `get_ref_geo_chemin`) |
-| 2026-11-12 | **B9 corrigé** (`Literal` dans `deps.py`) |
-| 2026-11-12 | **Bug Pydantic `TypeAlimentation`** : `from __future__ import annotations` retiré de `deps.py` et `carto.py` (Pydantic 2 + PEP 563 incompatible avec `Literal` importé) |
-| 2026-11-12 | **carto.py** : `WHERE` dynamique, `qualite_eau` `or {}`, `source`/`date_ingestion` exposés, `StatutQualite` centralisé, `row._mapping` |
-| 2026-11-12 | Backend démarre à nouveau, 52 tests passent |
+### 7.2 Points gris en mode Fichier
 
----
+**Cause** : `type_alimentation` n'existe pas en mode Fichier (brut, pas consolidé).
 
-## 7. Points ouverts (V2)
+**Solution** : palette par `statut_qualite` (D3).
 
-| Sujet | Raison |
-|-------|--------|
-| Déploiement production | MVP local Docker |
-| Monitoring (Prometheus, Grafana) | V2 |
-| Logging centralisé (ELK, Loki) | V2 |
-| Authentification complète (login, OAuth) | JWT manuel au MVP |
-| Gestion utilisateurs (rôles) | V2 |
-| CI/CD avancé (staging, prod, rollback) | V2 |
-| Tests de charge (Locust, k6) | V2 |
-| Documentation utilisateur (guide DHR) | V2 |
-| Internationalisation (i18n) | V2 |
-| Filtre `type_ouvrage_brut` en mode Fichier | À trancher avec frontend |
-| Promotion des clés `metadata` en attributs de première classe (`attribut_definition` + `ouvrage_attribut`) | V2 |
-| `Localite.geom_centre` exposé en liste | V2 |
-| Alias localités non alimentés | V2 |
-| CGPE non créés | V2 |
-| Projets de financement non créés | V2 |
+### 7.3 Lignes rejetées
+
+**Comportement** : non stockées (Bible § 3.1.6). Comptées dans `nb_rejetes`. Affichées dans la carte « Lignes rejetées » de `Qualite.tsx`, mais pas dans le tableau de détail.
+
+**V2** : stocker pour correction manuelle.
+
+### 7.4 `message_qualite`
+
+**Comportement** : absent du schéma Pydantic `LigneIngeree`. Le frontend reçoit `undefined`.
+
+**Solution** : ajouter `message_qualite: str | None` dans `schemas/ingestion.py` (D6).
 
 ---
 
-## 8. Commandes de reprise (pour la prochaine session)
+## 8. Documents de référence
 
-> « Je reprends le projet DHR. Voici le handoff (`HANDOFF.md`), la Bible (`DHR.md`) et la Constitution (`CONSTITUTION.md`). La Phase C (socle DB) est terminée. La Phase D (services + routers) est bien avancée : `main.py`, `deps.py`, `carto.py`, `referentiels.py` sont corrigés, le backend démarre, 52 tests passent.
+| Document | Rôle | Statut |
+|----------|------|--------|
+| `DHR.md` | Bible (fait autorité) | ✅ v1.0 |
+| `CONSTITUTION.md` | Contrat opérationnel | ✅ v1.0 |
+| `openapi.yaml` | Contrat API | ✅ v1.3.0 |
+| `metadata_conventions.md` | Conventions metadata | ⏳ À réécrire (M1–M6) |
+| `HANDOFF.md` | Ce document | ✅ v1.2 |
+
+---
+
+## 9. Commandes de reprise
+
+> « Je reprends le projet DHR. Backend 100 % validé (54 tests, Ruff OK). Frontend en cours de validation.
 >
-> **Il reste à faire** :
-> 1. **B6** — `fichiers.py` (imports dupliqués en bas)
-> 2. **B7** — `fichiers.py` + `schemas/fichiers.py` (unicité `entete_brut`)
-> 3. **B4** — `ouvrages.py` (`aliased()` au lieu de `__table__.alias()`)
-> 4. **C9** — `ingestion.py` (curseur opaque base64)
-> 5. **C3–C5, C10** — `schemas/*` (docstrings, `bailleur: str | None`, `response_model`)
-> 6. **`RunPlage`** — validation `ligne_fin >= ligne_debut`
-> 7. **F1–F9** — Frontend
-> 8. **O1–O5, OI1–OI2** — `openapi.yaml`
-> 9. **M1–M6** — `metadata_conventions.md`
-> 10. **`tests-api.md`** — exécuter le script bout-en-bout
-> 11. **CI GitHub Actions** — vérifier
+> **Fichiers validés** : `api.ts`, `vite.config.ts`, `lib/filters.ts`, `FiltersPanel.tsx`, `Liste.tsx`.
 >
-> On commence par **B6 + B7** (les deux dans `fichiers.py`). »
+> **Fichiers à corriger** :
+> - `Carte.tsx` : ajouter sélecteur `id_run` (mode Fichier).
+> - `MapView.tsx` : palette conditionnelle (qualité en mode Fichier).
+> - `Qualite.tsx` : vérifier `message_qualite`.
+> - `Fichiers.tsx`, `Mapping.tsx`, `UploadDialog.tsx`, `RunStatus.tsx`, `Parametres.tsx`, `App.tsx` : audit.
+>
+> **Backend à corriger** : ajouter `message_qualite` dans `schemas/ingestion.py`.
+>
+> On commence par `Carte.tsx` (sélecteur `id_run`). »
 
 ---
 
-## 9. Annexe — Fichiers modifiés dans cette session
+## 10. Annexe — Fichiers modifiés dans cette session
 
 | Fichier | Changement |
 |---------|-----------|
-| `app/main.py` | RFC 7807 + lifespan |
-| `app/deps.py` | `Literal` + `StatutQualite` + sans PEP 563 |
-| `app/routers/carto.py` | A1–A4 + C8 + (1,2,3,5,6) + sans PEP 563 |
-| `app/routers/referentiels.py` | B1, B2, B3 |
-| `tests-api.md` | **Nouveau** — script bout-en-bout |
-
-**Fichiers non modifiés mais vérifiés** : `app/routers/ouvrages.py`, `app/routers/qualite.py`, `app/routers/fichiers.py`, `app/routers/ingestion.py`, `app/schemas/*`, `app/models.py`, `sql/schema.sql`.
+| `frontend/src/lib/api.ts` | Réécrit (types, `toQuery`, `parseProblem`, 401, `exportOuvrages`) |
+| `frontend/src/lib/filters.ts` | **Nouveau** (`Filters`, `EMPTY_FILTERS`) |
+| `frontend/src/components/FiltersPanel.tsx` | Imports corrigés, reset, cascade |
+| `frontend/src/pages/Liste.tsx` | Imports corrigés |
+| `frontend/src/pages/Carte.tsx` | Imports corrigés, filtres mode Fichier |
+| `frontend/src/components/MapView.tsx` | Formes, `qualite_eau` popup |
+| `frontend/src/pages/Qualite.tsx` | Réécrit (JSX corrigé) |
+| `backend/app/services/export.py` | Réindenté |
+| `backend/app/main.py` | RFC 7807 + lifespan |
+| `backend/app/deps.py` | `Literal` + `StatutQualite` + sans PEP 563 |
+| `backend/app/routers/carto.py` | A1–A4, C8, (1,2,3,5,6), sans PEP 563 |
+| `backend/app/routers/referentiels.py` | B1, B2, B3 |
+| `backend/app/routers/fichiers.py` | B6, sans PEP 563 |
+| `backend/app/schemas/fichiers.py` | B7 (`MappingValidation`) |
+| `openapi.yaml` | v1.3.0 (indentation, préfixes, schémas) |
 
 ---
 
-**Fin du handoff v1.1.** Ce document capture l'état du projet au **2026-11-12**. Pour reprendre, lire ce handoff, puis la Bible (`DHR.md`) et la Constitution (`CONSTITUTION.md`). En cas de conflit, **la Bible fait autorité**.
+**Fin du handoff v1.2.** Ce document capture l'état au **16 novembre 2026**. En cas de conflit, **la Bible fait autorité**.
 
 ---
+
+
