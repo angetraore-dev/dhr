@@ -4,7 +4,7 @@ Service de consolidation : ligne_ingeree → ouvrage.
 IMPORTANT (Bible § 3.2.3) :
 - `doublon_suspect` : code_ouvrage déjà vu + distance > 1 km.
 - `type_ouvrage_inconnu` : après création, si nature/alim/réal tous inconnus.
-- `qualite_eau` : extraite via INDICATEURS_SANITAIRES (clés normalisées + brut_*).
+- `qualite_eau` : extraite via mapping validé + INDICATEURS_SANITAIRES (clés normalisées + brut_*).
 - `_map_nature`, `_map_alimentation`, `_map_realisation`, `_map_etat` : lisent
   `type_ouvrage_brut` et `usage_ouvrage_brut` (P12).
 """
@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.models import Feuille, LigneIngeree, Ouvrage
+from app.models import Feuille, LigneIngeree, MappingFeuille, Ouvrage
 from app.services.patterns import INDICATEURS_SANITAIRES, SANITAIRE_MOTS_CLES
 
 logger = logging.getLogger("dhr.consolidation")
@@ -38,6 +38,7 @@ def _normaliser(texte: str | None) -> str:
     texte = re.sub(r"[\s\-_]+", " ", texte).strip()
     return texte
 
+
 # =====================================================================
 # _map_* : interprétation du contenu (P11)
 # =====================================================================
@@ -51,7 +52,6 @@ def _map_nature(type_ouvrage_brut: str | None, nom_feuille: str = "") -> str:
         return "puits"
     if "forage" in norm or "sondage" in norm:
         return "forage"
-    # Fallback nom de feuille
     norm_f = _normaliser(nom_feuille)
     if "puits" in norm_f:
         return "puits"
@@ -59,9 +59,7 @@ def _map_nature(type_ouvrage_brut: str | None, nom_feuille: str = "") -> str:
         return "forage"
     return "inconnu"
 
-# =====================================================================
-# _map_* : interprétation du contenu (P11)
-# =====================================================================
+
 def _map_alimentation(
     type_ouvrage_brut: str | None,
     usage_ouvrage_brut: str | None,
@@ -71,12 +69,10 @@ def _map_alimentation(
     Détermine l'alimentation (PMH, HVA, PEA, HV, AUTRE).
     Priorité : nom_feuille > type_ouvrage_brut > usage_ouvrage_brut.
     """
-    # Priorité 1 : nom de la feuille (mots entiers pour éviter HV dans HVA/CHV)
     m_feuille = re.search(r"\b(PMH|HVA|PEA|HV)\b", nom_feuille or "", re.I)
     if m_feuille:
         return m_feuille.group(1).upper()
 
-    # Priorité 2 : type_ouvrage_brut
     norm = _normaliser(type_ouvrage_brut)
     if re.search(r"\bpmh\b", norm) or "motricite" in norm or "pompe" in norm:
         return "PMH"
@@ -87,7 +83,6 @@ def _map_alimentation(
     if re.search(r"\bpea\b", norm) or "autonome" in norm:
         return "PEA"
 
-    # Priorité 3 : usage_ouvrage_brut
     norm_u = _normaliser(usage_ouvrage_brut)
     if re.search(r"\bpmh\b", norm_u) or "motricite" in norm_u or "pompe" in norm_u:
         return "PMH"
@@ -142,42 +137,63 @@ def _map_etat(etat_ouvrage_brut: str | None) -> str:
 
 
 # =====================================================================
-# Extraction qualite_eau (B6.3)
+# Extraction qualite_eau (B6.3 + mapping explicite metadata.qualite_eau.*)
 # =====================================================================
-def _extraire_qualite_eau(donnees_brutes: dict[str, Any]) -> dict[str, Any] | None:
+def _extraire_qualite_eau(
+    donnees_brutes: dict[str, Any] | None,
+    mapping_colonnes: dict[str, str | None] | None = None,
+) -> dict[str, Any] | None:
     """
-    Extrait les indicateurs sanitaires de donnees_brutes.
-    Retourne None si aucun indicateur trouvé.
+    Construit le dict JSONB ouvrage.qualite_eau depuis :
+    1. Les colonnes explicitement mappées sur 'qualite_eau' ou 'metadata.qualite_eau.<cle>'
+    2. Les indicateurs sanitaires connus (INDICATEURS_SANITAIRES & SANITAIRE_MOTS_CLES)
+    Conserve systématiquement `brut_<entete>` pour la traçabilité.
     """
     if not donnees_brutes:
         return None
 
     qualite: dict[str, Any] = {}
 
+    # 1. Via mapping explicite de la feuille (prioritaire)
+    if mapping_colonnes:
+        for entete_brut, cible in mapping_colonnes.items():
+            if not cible:
+                continue
+            val = donnees_brutes.get(entete_brut)
+            if val is None or str(val).strip() == "":
+                continue
+            val_clean = str(val).strip() if isinstance(val, str) else val
+            if cible == "qualite_eau":
+                qualite["qualite_eau"] = val_clean
+                qualite[f"brut_{entete_brut}"] = val
+            elif cible.startswith("metadata.qualite_eau."):
+                cle = cible.split(".", 2)[2]
+                qualite[cle] = val_clean
+                qualite[f"brut_{entete_brut}"] = val
+
+    # 2. Fallback par patterns sanitaires sur toutes les colonnes de donnees_brutes
     for entete, valeur in donnees_brutes.items():
         if valeur is None or str(valeur).strip() == "":
             continue
 
-        # 1. Chercher un indicateur normalisé
         matched = False
         for code, patterns in INDICATEURS_SANITAIRES.items():
             for pat in patterns:
                 if pat.search(entete):
-                    qualite[code] = valeur
+                    if code not in qualite:
+                        qualite[code] = valeur
                     matched = True
                     break
             if matched:
                 break
 
-        # 2. Chercher un mot-clé sanitaire générique
         if not matched:
             for pat in SANITAIRE_MOTS_CLES:
                 if pat.search(entete):
                     matched = True
                     break
 
-        # 3. Toujours ajouter la clé brute (traçabilité)
-        if matched:
+        if matched and f"brut_{entete}" not in qualite:
             qualite[f"brut_{entete}"] = valeur
 
     return qualite if qualite else None
@@ -204,10 +220,7 @@ def _distance_km(
     lat1: float, lon1: float,
     lat2: float, lon2: float,
 ) -> float:
-    """
-    Distance géodésique (km) via ST_Distance de PostGIS.
-    Retourne inf si l'un des points est NULL.
-    """
+    """Distance géodésique (km) via ST_Distance de PostGIS."""
     if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
         return float("inf")
 
@@ -233,14 +246,12 @@ def _trouver_ouvrage_existant(
     2. Par tuple (id_localite, nature_ouvrage, type_alimentation, annee_realisation)
     3. Par proximité GPS (< 20 mètres) dans la même localité avec même nature et alimentation
     """
-    # 1. Par code_ouvrage
     code = _extraire_code_ouvrage(ligne.donnees_brutes)
     if code:
         existing = db.scalar(select(Ouvrage).where(Ouvrage.code_ouvrage == code))
         if existing is not None:
             return existing
 
-    # 2. Par tuple métier + année
     if ligne.id_localite is not None and ligne.annee_projet is not None:
         existing = db.scalar(
             select(Ouvrage).where(
@@ -253,7 +264,6 @@ def _trouver_ouvrage_existant(
         if existing is not None:
             return existing
 
-    # 3. Par proximité GPS (< 20 m) pour les ouvrages sans code ni année
     if (
         ligne.id_localite is not None
         and ligne.latitude_decimal is not None
@@ -276,26 +286,24 @@ def _trouver_ouvrage_existant(
                 cand.latitude_decimal,
                 cand.longitude_decimal,
             )
-            if dist_km <= 0.02:  # <= 20 mètres
+            if dist_km <= 0.02:
                 return cand
-
     return None
-
 
 # =====================================================================
 # Consolidation d'une ligne
 # =====================================================================
+
 def _consolider_ligne(
     db: Session,
     ligne: LigneIngeree,
     nom_feuille: str,
+    mapping_colonnes: dict[str, str | None] | None = None,
 ) -> Ouvrage | None:
     """
     Consolide une ligne en ouvrage.
     Retourne l'ouvrage créé/mis à jour, ou None si ignoré.
-    Met à jour ligne.statut_qualite si besoin (doublon_suspect, type_ouvrage_inconnu).
     """
-    # Filtres d'entrée
     if ligne.statut_qualite != "ok":
         return None
     if ligne.id_localite is None:
@@ -303,7 +311,6 @@ def _consolider_ligne(
     if ligne.latitude_decimal is None or ligne.longitude_decimal is None:
         return None
 
-    # Calcul des attributs normalisés
     nature = _map_nature(ligne.type_ouvrage_brut, nom_feuille)
     alimentation = _map_alimentation(
         ligne.type_ouvrage_brut, ligne.usage_ouvrage_brut, nom_feuille
@@ -322,8 +329,10 @@ def _consolider_ligne(
         ):
             distance = _distance_km(
                 db,
-                ligne.latitude_decimal, ligne.longitude_decimal,
-                existing_by_code.latitude_decimal, existing_by_code.longitude_decimal,
+                ligne.latitude_decimal,
+                ligne.longitude_decimal,
+                existing_by_code.latitude_decimal,
+                existing_by_code.longitude_decimal,
             )
             if distance > SEUIL_DOUBLON_KM:
                 ligne.statut_qualite = "doublon_suspect"
@@ -336,7 +345,6 @@ def _consolider_ligne(
     existing = _trouver_ouvrage_existant(db, ligne, nature, alimentation)
 
     if existing is not None:
-        # Mise à jour des champs vides
         if existing.annee_realisation is None and ligne.annee_projet is not None:
             existing.annee_realisation = ligne.annee_projet
         if existing.latitude_decimal is None:
@@ -352,7 +360,6 @@ def _consolider_ligne(
         if existing.realisation_par == "inconnu" and realisation != "inconnu":
             existing.realisation_par = realisation
 
-        # Fusion metadata
         if ligne.donnees_brutes:
             meta = existing.metadata_ or {}
             for k, v in ligne.donnees_brutes.items():
@@ -360,8 +367,7 @@ def _consolider_ligne(
                     meta[f"brut_{k}"] = v
             existing.metadata_ = meta
 
-        # Fusion qualite_eau (B6.3)
-        qe = _extraire_qualite_eau(ligne.donnees_brutes)
+        qe = _extraire_qualite_eau(ligne.donnees_brutes, mapping_colonnes)
         if qe:
             existing.qualite_eau = {**(existing.qualite_eau or {}), **qe}
 
@@ -374,7 +380,7 @@ def _consolider_ligne(
             if v is not None:
                 metadata[f"brut_{k}"] = v
 
-    qualite_eau = _extraire_qualite_eau(ligne.donnees_brutes)
+    qualite_eau = _extraire_qualite_eau(ligne.donnees_brutes, mapping_colonnes)
 
     ouvrage = Ouvrage(
         code_ouvrage=code,
@@ -392,7 +398,6 @@ def _consolider_ligne(
     db.add(ouvrage)
     db.flush()
 
-    # --- Écriture type_ouvrage_inconnu (B6.2) ---
     if nature == "inconnu" and alimentation == "AUTRE" and realisation == "inconnu":
         ligne.statut_qualite = "type_ouvrage_inconnu"
         ligne.message_qualite = (
@@ -418,6 +423,13 @@ def consolider_lignes_run(db: Session, id_run: int) -> dict[str, Any]:
     feuilles_cache: dict[int, str] = {}
     for f in db.scalars(select(Feuille)).all():
         feuilles_cache[f.id_feuille] = f.nom_feuille
+
+    # Cache des mappings validés par feuille (pour metadata.qualite_eau.*)
+    mappings_cache: dict[int, dict[str, str | None]] = {}
+    for m in db.scalars(
+        select(MappingFeuille).where(MappingFeuille.valide_par_utilisateur.is_(True))
+    ).all():
+        mappings_cache.setdefault(m.id_feuille, {})[m.entete_brut] = m.champ_cible
 
     def _est_feuille_localites(nom_feuille: str) -> bool:
         norm = _normaliser(nom_feuille)
@@ -446,7 +458,6 @@ def consolider_lignes_run(db: Session, id_run: int) -> dict[str, Any]:
                 stats["lignes_ignorees"] += 1
                 continue
 
-            # Compter les états avant consolidation
             nature_before = _map_nature(ligne.type_ouvrage_brut, nom_feuille)
             alim_before = _map_alimentation(
                 ligne.type_ouvrage_brut, ligne.usage_ouvrage_brut, nom_feuille
@@ -455,7 +466,8 @@ def consolider_lignes_run(db: Session, id_run: int) -> dict[str, Any]:
                 db, ligne, nature_before, alim_before
             )
 
-            ouvrage = _consolider_ligne(db, ligne, nom_feuille)
+            mapping_colonnes = mappings_cache.get(ligne.id_feuille)
+            ouvrage = _consolider_ligne(db, ligne, nom_feuille, mapping_colonnes)
 
             if ouvrage is not None:
                 ligne.id_ouvrage_consolide = ouvrage.id_ouvrage
@@ -464,7 +476,6 @@ def consolider_lignes_run(db: Session, id_run: int) -> dict[str, Any]:
                 else:
                     stats["ouvrages_crees"] += 1
 
-                # Compter les cas particuliers
                 if ligne.statut_qualite == "type_ouvrage_inconnu":
                     stats["attributs_indetermines"] += 1
             else:

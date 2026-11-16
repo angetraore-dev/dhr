@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from app.models import IngestionRun, LigneIngeree, Ouvrage
 from app.services.consolidation import (
+    _consolider_ligne,
     _extraire_qualite_eau,
     _map_alimentation,
     _map_etat,
@@ -31,11 +32,12 @@ def _creer_ligne_ok(
     etat_ouvrage_brut="Fonctionnel",
     annee_projet=2020,
     donnees_brutes=None,
+    num_ligne_source=1,
 ):
     ligne = LigneIngeree(
         id_feuille=id_feuille,
         id_run=id_run,
-        num_ligne_source=1,
+        num_ligne_source=num_ligne_source,
         donnees_brutes=donnees_brutes or {"Code ouvrage": "CODE001"},
         localite_brute=localite_brute,
         latitude_decimal=lat,
@@ -228,3 +230,74 @@ class TestConsolidationLigne:
         assert ligne.statut_qualite == "type_ouvrage_inconnu"
         # L'ouvrage est quand même créé
         assert ligne.id_ouvrage_consolide is not None
+
+    def test_consolidation_qualite_eau_via_mapping(
+        self, db, localite_test, fichier_avec_feuille
+    ):
+        fichier, feuille = fichier_avec_feuille
+        run = IngestionRun(
+            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
+        )
+        db.add(run)
+        db.flush()
+
+        ligne = _creer_ligne_ok(
+            db,
+            feuille.id_feuille,
+            run.id_run,
+            localite_test.id_localite,
+            lat=7.51,
+            lon=-5.51,
+            donnees_brutes={"Col_Potabilite": "Potable", "Taux_Arsenic": "0.005"},
+        )
+        mapping = {
+            "Col_Potabilite": "qualite_eau",
+            "Taux_Arsenic": "metadata.qualite_eau.arsenic",
+        }
+        ouvrage = _consolider_ligne(
+            db, ligne, feuille.nom_feuille, mapping_colonnes=mapping
+        )
+        assert ouvrage is not None
+        assert ouvrage.qualite_eau["qualite_eau"] == "Potable"
+        assert ouvrage.qualite_eau["arsenic"] == "0.005"
+
+    def test_dedoublonnage_proximite_gps_sans_code_ni_annee(
+        self, db, localite_test, fichier_avec_feuille
+    ):
+        fichier, feuille = fichier_avec_feuille
+        run = IngestionRun(
+            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
+        )
+        db.add(run)
+        db.flush()
+
+        ligne1 = _creer_ligne_ok(
+            db,
+            feuille.id_feuille,
+            run.id_run,
+            localite_test.id_localite,
+            lat=7.52000,
+            lon=-5.52000,
+            annee_projet=None,
+        )
+        ligne1.donnees_brutes = {}
+        o1 = _consolider_ligne(db, ligne1, feuille.nom_feuille)
+
+        ligne2 = _creer_ligne_ok(
+            db,
+            feuille.id_feuille,
+            run.id_run,
+            localite_test.id_localite,
+            lat=7.52010,
+            lon=-5.52000,
+            annee_projet=None,
+            num_ligne_source=2
+        )
+        ligne2.donnees_brutes = {}
+        o2 = _consolider_ligne(db, ligne2, feuille.nom_feuille)
+
+        assert o1 is not None
+        assert o2 is not None
+        assert o1.id_ouvrage == o2.id_ouvrage
+
+

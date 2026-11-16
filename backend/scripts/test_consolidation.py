@@ -44,6 +44,10 @@ def main(id_run: int) -> None:
         print("\nEn base :")
         print(f"  Total ouvrages : {total_ouvrages}")
         print(f"  Lignes consolidées (run {id_run}) : {total_lignes_consolidees}")
+        avec_qualite_eau = db.scalar(
+            select(func.count()).select_from(Ouvrage).where(Ouvrage.qualite_eau.isnot(None))
+        )
+        print(f"  Ouvrages avec qualite_eau : {avec_qualite_eau}")
 
     except Exception:
         traceback.print_exc()
