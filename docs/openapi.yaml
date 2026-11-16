@@ -1,54 +1,54 @@
 openapi: 3.1.0
 info:
     title: API DHR — Centralisation des ouvrages hydrauliques ruraux
-    version: 1.2.0
+    version: 1.3.0
     description: |
         API de la Direction de l'Hydraulique Rurale (DHR) pour la centralisation
         des données sur les ouvrages hydrauliques ruraux.
-        
+
         ## Authentification
         - **Lecture** : header `X-API-Key`
         - **Écriture** : header `Authorization: Bearer <jwt>`
-        
+
         ## Format d'erreur
         Toutes les erreurs suivent RFC 7807 (Problem Details).
-        
+
         ## Pagination
-        - **Offset** pour les petites listes (`sources`, `types-ouvrage`, `fichiers`,
+        - **Offset** pour les petites listes (`sources`, `ref-geo`, `fichiers`,
           `feuilles`, `runs`, `localites`)
         - **Cursor** pour les listes volumineuses (`lignes`, `ouvrages`)
-        
-        ## Métadonnées non mappées
+
+        ## Métadonnées non mappées & Qualité d'eau
         Les entités `localite`, `ouvrage` et `cgpe` portent un champ `metadata`
-        (jsonb) qui capture les attributs non mappés.
+        (jsonb) qui capture les attributs complémentaires. `ouvrage` porte également
+        un champ `qualite_eau` (jsonb) pour les indicateurs sanitaires et physico-chimiques.
         Convention : `docs/metadata_conventions.md`.
-        Le champ est exclu par défaut des listes, et inclus sur les endpoints
-        de détail via `?include=metadata`.
-        
+        Le champ `metadata` est exclu par défaut des listes, et inclus via `?include=metadata`.
+
         ## Export
         Deux endpoints d'export tabulaire sont disponibles :
         - `GET /ouvrages/export` → fichier Excel (.xlsx) streamé (avec feuille Synthèse)
         - `GET /ouvrages/export.csv` → fichier CSV streamé
-        
+
         Les filtres sont **identiques** à `GET /ouvrages`. Limite :
         `MAX_EXPORT_ROWS` (défaut 100 000), au-delà → 413.
-        
+
         ## Mapping UI
         Deux endpoints permettent à l'UI de proposer et valider le mapping :
         - `GET /fichiers/{id}/mapping-proposal` → proposition auto
         - `PUT /fichiers/{id}/mapping` → sauvegarde du mapping validé
 
 servers:
-    - url: https://api.dhr.local/v1
+    - url: https://dhr.local
       description: Production
-    - url: http://localhost:8000/v1
-      description: Développement local
+    - url: http://localhost:8000
+      description: Développement local (les paths incluent le préfixe /v1)
 
 tags:
     - name: Référentiels
-      description: Sources, types d'ouvrage, référentiel géo, localités
+      description: Sources, référentiel géo administratif et localités
     - name: Fichiers
-      description: Fichiers ingérés et feuilles
+      description: Fichiers ingérés, feuilles et mapping de colonnes
     - name: Ingestion
       description: Runs d'ingestion et lignes normalisées
     - name: Ouvrages
@@ -67,7 +67,7 @@ paths:
     # RÉFÉRENTIELS
     # ============================================================
 
-    /sources:
+    /v1/sources:
         get:
             tags: [Référentiels]
             summary: Liste des sources
@@ -88,24 +88,7 @@ paths:
                                     pagination: { $ref: '#/components/schemas/PaginationOffset' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
 
-    /types-ouvrage:
-        get:
-            tags: [Référentiels]
-            summary: Liste des types d'ouvrage
-            responses:
-                '200':
-                    description: Liste
-                    content:
-                        application/json:
-                            schema:
-                                type: object
-                                properties:
-                                    data:
-                                        type: array
-                                        items: { $ref: '#/components/schemas/TypeOuvrage' }
-                '401': { $ref: '#/components/responses/Unauthorized' }
-
-    /ref-geo:
+    /v1/ref-geo:
         get:
             tags: [Référentiels]
             summary: Nœuds du référentiel géographique administratif
@@ -134,7 +117,7 @@ paths:
                                     pagination: { $ref: '#/components/schemas/PaginationOffset' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
 
-    /ref-geo/{id}/chemin:
+    /v1/ref-geo/{id}/chemin:
         get:
             tags: [Référentiels]
             summary: Chaîne hiérarchique district → localité
@@ -154,7 +137,7 @@ paths:
                 '404': { $ref: '#/components/responses/NotFound' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
 
-    /localites:
+    /v1/localites:
         get:
             tags: [Référentiels]
             summary: Liste des localités
@@ -164,7 +147,7 @@ paths:
                   schema: { type: integer }
                 - name: q
                   in: query
-                  description: Recherche floue sur le nom
+                  description: Recherche insensible aux accents sur le nom
                   schema: { type: string }
                 - $ref: '#/components/parameters/Offset'
                 - $ref: '#/components/parameters/Limit'
@@ -182,7 +165,7 @@ paths:
                                     pagination: { $ref: '#/components/schemas/PaginationOffset' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
 
-    /localites/{id}:
+    /v1/localites/{id}:
         get:
             tags: [Référentiels]
             summary: Détail d'une localité
@@ -210,7 +193,7 @@ paths:
     # FICHIERS
     # ============================================================
 
-    /fichiers:
+    /v1/fichiers:
         get:
             tags: [Fichiers]
             summary: Liste des fichiers
@@ -262,7 +245,7 @@ paths:
             parameters:
                 - name: force
                   in: query
-                  description: Forcer la réingestion si le hash existe déjà
+                  description: Forcer la réingestion si le hash SHA-256 existe déjà
                   schema: { type: boolean, default: false }
             responses:
                 '201':
@@ -285,11 +268,11 @@ paths:
                                                 nom: { type: string }
                                                 index: { type: integer }
                                                 nb_lignes_estime: { type: integer }
-                '409': { $ref: '#/components/responses/Conflict' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
                 '403': { $ref: '#/components/responses/Forbidden' }
+                '409': { $ref: '#/components/responses/Conflict' }
 
-    /fichiers/{id}:
+    /v1/fichiers/{id}:
         get:
             tags: [Fichiers]
             summary: Détail d'un fichier
@@ -304,10 +287,10 @@ paths:
                     content:
                         application/json:
                             schema: { $ref: '#/components/schemas/Fichier' }
-                '404': { $ref: '#/components/responses/NotFound' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
 
-    /fichiers/{id}/feuilles:
+    /v1/fichiers/{id}/feuilles:
         get:
             tags: [Fichiers]
             summary: Feuilles d'un fichier
@@ -332,7 +315,7 @@ paths:
                                     pagination: { $ref: '#/components/schemas/PaginationOffset' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
 
-    /fichiers/{id}/mapping-proposal:
+    /v1/fichiers/{id}/mapping-proposal:
         get:
             tags: [Fichiers]
             summary: Proposition de mapping automatique
@@ -353,22 +336,26 @@ paths:
                             schema:
                                 type: array
                                 items: { $ref: '#/components/schemas/MappingProposalFeuille' }
-                '404': { $ref: '#/components/responses/NotFound' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
 
-    /fichiers/{id}/mapping:
+    /v1/fichiers/{id}/mapping:
         put:
             tags: [Fichiers]
             summary: Sauvegarde le mapping validé par l'utilisateur
             description: |
-                Sauvegarde le mapping corrigé par l'utilisateur.
-                L'ingestion utilisera ce mapping en priorité.
+                Sauvegarde le mapping corrigé par l'utilisateur pour une feuille.
+                L'ingestion et la consolidation utiliseront ce mapping en priorité.
             security:
                 - BearerAuth: []
             parameters:
                 - name: id
                   in: path
                   required: true
+                  schema: { type: integer, format: int64 }
+                - name: id_feuille
+                  in: query
+                  description: Feuille cible (défaut : première feuille du fichier)
                   schema: { type: integer, format: int64 }
             requestBody:
                 required: true
@@ -385,11 +372,13 @@ paths:
                 '401': { $ref: '#/components/responses/Unauthorized' }
                 '403': { $ref: '#/components/responses/Forbidden' }
                 '404': { $ref: '#/components/responses/NotFound' }
+                '422': { $ref: '#/components/responses/ValidationError' }
+
     # ============================================================
     # INGESTION
     # ============================================================
 
-    /fichiers/{id}/runs:
+    /v1/fichiers/{id}/runs:
         get:
             tags: [Ingestion]
             summary: Historique des runs d'un fichier
@@ -417,6 +406,9 @@ paths:
         post:
             tags: [Ingestion]
             summary: Lancer une ingestion (asynchrone)
+            description: |
+                Le pipeline complet (ingestion → rapprochement → consolidation) est
+                exécuté en arrière-plan. Le client poll `GET /runs/{id}` pour suivre.
             security:
                 - BearerAuth: []
             parameters:
@@ -424,15 +416,24 @@ paths:
                   in: path
                   required: true
                   schema: { type: integer, format: int64 }
-            requestBody:
-                required: true
-                content:
-                    application/json:
-                        schema:
-                            oneOf:
-                                - $ref: '#/components/schemas/RunComplet'
-                                - $ref: '#/components/schemas/RunEchantillon'
-                                - $ref: '#/components/schemas/RunPlage'
+                - name: mode
+                  in: query
+                  schema:
+                      type: string
+                      enum: [complet, echantillon, plage]
+                      default: complet
+                - name: id_feuille
+                  in: query
+                  schema: { type: integer, format: int64 }
+                - name: limite_lignes
+                  in: query
+                  schema: { type: integer, minimum: 1 }
+                - name: ligne_debut
+                  in: query
+                  schema: { type: integer, minimum: 1 }
+                - name: ligne_fin
+                  in: query
+                  schema: { type: integer, minimum: 1 }
             responses:
                 '202':
                     description: Ingestion lancée
@@ -449,8 +450,10 @@ paths:
                 '400': { $ref: '#/components/responses/BadRequest' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
                 '403': { $ref: '#/components/responses/Forbidden' }
+                '404': { $ref: '#/components/responses/NotFound' }
+                '422': { $ref: '#/components/responses/ValidationError' }
 
-    /runs/{id}:
+    /v1/runs/{id}:
         get:
             tags: [Ingestion]
             summary: Suivi d'un run
@@ -465,10 +468,41 @@ paths:
                     content:
                         application/json:
                             schema: { $ref: '#/components/schemas/IngestionRun' }
-                '404': { $ref: '#/components/responses/NotFound' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
 
-    /feuilles/{id}/lignes:
+    /v1/runs/{id}/lignes:
+        get:
+            tags: [Ingestion]
+            summary: Lignes d'un run (cursor)
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema: { type: integer, format: int64 }
+                - name: statut_qualite
+                  in: query
+                  schema:
+                      type: string
+                      enum: [ok, localite_non_resolue, geom_invalide, type_ouvrage_inconnu, rejete, doublon_suspect]
+                - $ref: '#/components/parameters/Cursor'
+                - $ref: '#/components/parameters/Limit'
+            responses:
+                '200':
+                    description: Liste paginée
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    data:
+                                        type: array
+                                        items: { $ref: '#/components/schemas/LigneIngeree' }
+                                    pagination: { $ref: '#/components/schemas/PaginationCursor' }
+                '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
+
+    /v1/feuilles/{id}/lignes:
         get:
             tags: [Ingestion]
             summary: Lignes d'une feuille (cursor)
@@ -500,38 +534,9 @@ paths:
                                         items: { $ref: '#/components/schemas/LigneIngeree' }
                                     pagination: { $ref: '#/components/schemas/PaginationCursor' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
 
-    /runs/{id}/lignes:
-        get:
-            tags: [Ingestion]
-            summary: Lignes d'un run (cursor)
-            parameters:
-                - name: id
-                  in: path
-                  required: true
-                  schema: { type: integer, format: int64 }
-                - name: statut_qualite
-                  in: query
-                  schema:
-                      type: string
-                      enum: [ok, localite_non_resolue, geom_invalide, type_ouvrage_inconnu, rejete, doublon_suspect]
-                - $ref: '#/components/parameters/Cursor'
-                - $ref: '#/components/parameters/Limit'
-            responses:
-                '200':
-                    description: Liste paginée
-                    content:
-                        application/json:
-                            schema:
-                                type: object
-                                properties:
-                                    data:
-                                        type: array
-                                        items: { $ref: '#/components/schemas/LigneIngeree' }
-                                    pagination: { $ref: '#/components/schemas/PaginationCursor' }
-                '401': { $ref: '#/components/responses/Unauthorized' }
-
-    /lignes/{id}:
+    /v1/lignes/{id}:
         get:
             tags: [Ingestion]
             summary: Détail d'une ligne
@@ -555,44 +560,29 @@ paths:
                                 oneOf:
                                     - $ref: '#/components/schemas/LigneIngeree'
                                     - $ref: '#/components/schemas/LigneIngereeAvecBrut'
-                '404': { $ref: '#/components/responses/NotFound' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
 
     # ============================================================
     # OUVRAGES & CGPE
     # ============================================================
 
-    /ouvrages:
+    /v1/ouvrages:
         get:
             tags: [Ouvrages]
             summary: Liste des ouvrages consolidés (cursor)
             parameters:
-                - name: type_ouvrage
-                  in: query
-                  schema: { type: string }
-                - name: etat
-                  in: query
-                  schema:
-                      type: string
-                      enum: [fonctionnel, en_panne, abandonne, inconnu]
-                - name: district
-                  in: query
-                  schema: { type: string }
-                - name: region
-                  in: query
-                  schema: { type: string }
-                - name: departement
-                  in: query
-                  schema: { type: string }
-                - name: sous_prefecture
-                  in: query
-                  schema: { type: string }
-                - name: annee_min
-                  in: query
-                  schema: { type: integer }
-                - name: annee_max
-                  in: query
-                  schema: { type: integer }
+                - $ref: '#/components/parameters/NatureOuvrage'
+                - $ref: '#/components/parameters/TypeAlimentation'
+                - $ref: '#/components/parameters/RealisationPar'
+                - $ref: '#/components/parameters/Etat'
+                - $ref: '#/components/parameters/Region'
+                - $ref: '#/components/parameters/Departement'
+                - $ref: '#/components/parameters/SousPrefecture'
+                - $ref: '#/components/parameters/Localite'
+                - $ref: '#/components/parameters/AnneeMin'
+                - $ref: '#/components/parameters/AnneeMax'
+                - $ref: '#/components/parameters/Bailleur'
                 - name: include
                   in: query
                   description: Inclure metadata dans la liste (coûteux)
@@ -614,8 +604,9 @@ paths:
                                         items: { $ref: '#/components/schemas/Ouvrage' }
                                     pagination: { $ref: '#/components/schemas/PaginationCursor' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '422': { $ref: '#/components/responses/ValidationError' }
 
-    /ouvrages/{id}:
+    /v1/ouvrages/{id}:
         get:
             tags: [Ouvrages]
             summary: Détail d'un ouvrage
@@ -636,129 +627,85 @@ paths:
                     content:
                         application/json:
                             schema: { $ref: '#/components/schemas/Ouvrage' }
-                '404': { $ref: '#/components/responses/NotFound' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
 
-    /ouvrages/export:
+    /v1/ouvrages/export:
         get:
-            tags: [ Ouvrages ]
+            tags: [Ouvrages]
             summary: Export Excel des ouvrages filtrés
             description: |
-                Génère un fichier `.xlsx` streamé avec les ouvrages filtrés.
-                Les filtres sont **identiques** à `GET /ouvrages`.
-                Limite : `MAX_EXPORT_ROWS` (défaut 100 000), au-delà → 413.
-                Le paramètre `include=metadata` ajoute une colonne par clé de metadata.
+                Mêmes filtres que `GET /ouvrages`. Le fichier inclut une feuille
+                Synthèse (KPI) par défaut, désactivable avec `?with_summary=false`.
             parameters:
-                - name: type_ouvrage
-                  in: query
-                  schema: { type: string }
-                - name: etat
-                  in: query
-                  schema:
-                      type: string
-                      enum: [ fonctionnel, en_panne, abandonne, inconnu ]
-                - name: district
-                  in: query
-                  schema: { type: string }
-                - name: region
-                  in: query
-                  schema: { type: string }
-                - name: departement
-                  in: query
-                  schema: { type: string }
-                - name: sous_prefecture
-                  in: query
-                  schema: { type: string }
-                - name: annee_min
-                  in: query
-                  schema: { type: integer }
-                - name: annee_max
-                  in: query
-                  schema: { type: integer }
+                - $ref: '#/components/parameters/NatureOuvrage'
+                - $ref: '#/components/parameters/TypeAlimentation'
+                - $ref: '#/components/parameters/RealisationPar'
+                - $ref: '#/components/parameters/Etat'
+                - $ref: '#/components/parameters/Region'
+                - $ref: '#/components/parameters/Departement'
+                - $ref: '#/components/parameters/SousPrefecture'
+                - $ref: '#/components/parameters/Localite'
+                - $ref: '#/components/parameters/AnneeMin'
+                - $ref: '#/components/parameters/AnneeMax'
+                - $ref: '#/components/parameters/Bailleur'
                 - name: include
                   in: query
-                  description: Inclure les colonnes metadata (une par clé)
                   schema:
                       type: string
-                      enum: [ metadata ]
+                      enum: [metadata]
                 - name: with_summary
                   in: query
-                  description: Inclure la feuille Synthèse (défaut true)
+                  description: Inclure la feuille Synthèse (KPI)
                   schema: { type: boolean, default: true }
-                - name: columns
-                  in: query
-                  description: |
-                      Liste de colonnes à inclure (séparées par virgule).
-                      Défaut = toutes les colonnes standard.
-                      Non exposé dans l'UI au MVP.
-                  schema: { type: string }
             responses:
                 '200':
                     description: Fichier Excel
-                    headers:
-                        Content-Disposition:
-                            schema: { type: string }
-                            description: 'attachment; filename="ouvrages_YYYY-MM-DD.xlsx"'
                     content:
                         application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
-                            schema: { type: string, format: binary }
-                '413': { $ref: '#/components/responses/PayloadTooLarge' }
+                            schema:
+                                type: string
+                                format: binary
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '413': { $ref: '#/components/responses/PayloadTooLarge' }
+                '422': { $ref: '#/components/responses/ValidationError' }
 
-    /ouvrages/export.csv:
+    /v1/ouvrages/export.csv:
         get:
             tags: [Ouvrages]
             summary: Export CSV des ouvrages filtrés
             description: |
-                Génère un fichier `.csv` (UTF-8, séparateur `;`) streamé avec les
-                ouvrages filtrés. Mêmes filtres que `GET /ouvrages/export`.
+                Mêmes filtres que `GET /ouvrages`. Séparateur `;`, encodage UTF-8.
             parameters:
-                - name: type_ouvrage
-                  in: query
-                  schema: { type: string }
-                - name: etat
-                  in: query
-                  schema:
-                      type: string
-                      enum: [fonctionnel, en_panne, abandonne, inconnu]
-                - name: district
-                  in: query
-                  schema: { type: string }
-                - name: region
-                  in: query
-                  schema: { type: string }
-                - name: departement
-                  in: query
-                  schema: { type: string }
-                - name: sous_prefecture
-                  in: query
-                  schema: { type: string }
-                - name: annee_min
-                  in: query
-                  schema: { type: integer }
-                - name: annee_max
-                  in: query
-                  schema: { type: integer }
+                - $ref: '#/components/parameters/NatureOuvrage'
+                - $ref: '#/components/parameters/TypeAlimentation'
+                - $ref: '#/components/parameters/RealisationPar'
+                - $ref: '#/components/parameters/Etat'
+                - $ref: '#/components/parameters/Region'
+                - $ref: '#/components/parameters/Departement'
+                - $ref: '#/components/parameters/SousPrefecture'
+                - $ref: '#/components/parameters/Localite'
+                - $ref: '#/components/parameters/AnneeMin'
+                - $ref: '#/components/parameters/AnneeMax'
+                - $ref: '#/components/parameters/Bailleur'
                 - name: include
                   in: query
-                  description: Inclure les colonnes metadata
                   schema:
                       type: string
                       enum: [metadata]
             responses:
                 '200':
                     description: Fichier CSV
-                    headers:
-                        Content-Disposition:
-                            schema: { type: string }
-                            description: 'attachment; filename="ouvrages_YYYY-MM-DD.csv"'
                     content:
                         text/csv:
-                            schema: { type: string, format: binary }
-                '413': { $ref: '#/components/responses/PayloadTooLarge' }
+                            schema:
+                                type: string
+                                format: binary
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '413': { $ref: '#/components/responses/PayloadTooLarge' }
+                '422': { $ref: '#/components/responses/ValidationError' }
 
-    /cgpe/{id}:
+    /v1/cgpe/{id}:
         get:
             tags: [Ouvrages]
             summary: Détail d'un CGPE
@@ -766,10 +713,9 @@ paths:
                 - name: id
                   in: path
                   required: true
-                  schema: { type: integer }
+                  schema: { type: integer, format: int64 }
                 - name: include
                   in: query
-                  description: Inclure metadata
                   schema:
                       type: string
                       enum: [metadata]
@@ -779,17 +725,17 @@ paths:
                     content:
                         application/json:
                             schema: { $ref: '#/components/schemas/CGPE' }
-                '404': { $ref: '#/components/responses/NotFound' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
 
     # ============================================================
     # CARTO
     # ============================================================
 
-    /carto/fichiers/{id_fichier}/points:
+    /v1/carto/fichiers/{id_fichier}/points:
         get:
             tags: [Carto]
-            summary: Points d'un fichier (GeoJSON FeatureCollection)
+            summary: Points bruts d'un fichier (GeoJSON)
             parameters:
                 - name: id_fichier
                   in: path
@@ -806,31 +752,12 @@ paths:
                   schema:
                       type: string
                       enum: [ok, localite_non_resolue, geom_invalide, type_ouvrage_inconnu, rejete, doublon_suspect]
-                - name: type_ouvrage
-                  in: query
-                  schema: { type: string }
-            responses:
-                '200':
-                    description: FeatureCollection GeoJSON
-                    content:
-                        application/geo+json:
-                            schema: { $ref: '#/components/schemas/FeatureCollectionPoints' }
-                '401': { $ref: '#/components/responses/Unauthorized' }
-
-    /carto/tous/points:
-        get:
-            tags: [Carto]
-            summary: Tous les ouvrages consolidés (GeoJSON FeatureCollection)
-            parameters:
-                - name: type_ouvrage
-                  in: query
-                  schema: { type: string }
-                - name: etat
+                - name: type_alimentation
                   in: query
                   schema:
                       type: string
-                      enum: [fonctionnel, en_panne, abandonne, inconnu]
-                - name: district
+                      enum: [PMH, HVA, PEA, HV, AUTRE]
+                - name: localite
                   in: query
                   schema: { type: string }
                 - name: region
@@ -842,12 +769,6 @@ paths:
                 - name: sous_prefecture
                   in: query
                   schema: { type: string }
-                - name: annee_min
-                  in: query
-                  schema: { type: integer }
-                - name: annee_max
-                  in: query
-                  schema: { type: integer }
             responses:
                 '200':
                     description: FeatureCollection GeoJSON
@@ -855,8 +776,9 @@ paths:
                         application/geo+json:
                             schema: { $ref: '#/components/schemas/FeatureCollectionPoints' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
 
-    /carto/fichiers/{id_fichier}/points.geojson:
+    /v1/carto/fichiers/{id_fichier}/points.geojson:
         get:
             tags: [Carto]
             summary: Téléchargement GeoJSON des points d'un fichier
@@ -876,22 +798,64 @@ paths:
                   schema:
                       type: string
                       enum: [ok, localite_non_resolue, geom_invalide, type_ouvrage_inconnu, rejete, doublon_suspect]
+                - name: type_alimentation
+                  in: query
+                  schema:
+                      type: string
+                      enum: [PMH, HVA, PEA, HV, AUTRE]
+                - name: localite
+                  in: query
+                  schema: { type: string }
+                - name: region
+                  in: query
+                  schema: { type: string }
+                - name: departement
+                  in: query
+                  schema: { type: string }
+                - name: sous_prefecture
+                  in: query
+                  schema: { type: string }
             responses:
                 '200':
-                    description: Fichier GeoJSON en téléchargement
-                    headers:
-                        Content-Disposition:
-                            schema: { type: string }
+                    description: Fichier GeoJSON
                     content:
                         application/geo+json:
-                            schema: { type: string, format: binary }
+                            schema:
+                                type: string
+                                format: binary
                 '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
+
+    /v1/carto/tous/points:
+        get:
+            tags: [Carto]
+            summary: Tous les ouvrages consolidés (GeoJSON)
+            parameters:
+                - $ref: '#/components/parameters/NatureOuvrage'
+                - $ref: '#/components/parameters/TypeAlimentation'
+                - $ref: '#/components/parameters/RealisationPar'
+                - $ref: '#/components/parameters/Etat'
+                - $ref: '#/components/parameters/Region'
+                - $ref: '#/components/parameters/Departement'
+                - $ref: '#/components/parameters/SousPrefecture'
+                - $ref: '#/components/parameters/Localite'
+                - $ref: '#/components/parameters/AnneeMin'
+                - $ref: '#/components/parameters/AnneeMax'
+                - $ref: '#/components/parameters/Bailleur'
+            responses:
+                '200':
+                    description: FeatureCollection GeoJSON
+                    content:
+                        application/geo+json:
+                            schema: { $ref: '#/components/schemas/FeatureCollectionPoints' }
+                '401': { $ref: '#/components/responses/Unauthorized' }
+                '422': { $ref: '#/components/responses/ValidationError' }
 
     # ============================================================
     # QUALITÉ
     # ============================================================
 
-    /qualite/fichiers/{id}:
+    /v1/qualite/fichiers/{id}:
         get:
             tags: [Qualité]
             summary: Tableau de bord qualité d'un fichier
@@ -902,16 +866,12 @@ paths:
                   schema: { type: integer, format: int64 }
             responses:
                 '200':
-                    description: Tableau de bord
+                    description: Qualité du fichier
                     content:
                         application/json:
                             schema: { $ref: '#/components/schemas/QualiteFichier' }
-                '404': { $ref: '#/components/responses/NotFound' }
                 '401': { $ref: '#/components/responses/Unauthorized' }
-
-# ============================================================
-# COMPOSANTS
-# ============================================================
+                '404': { $ref: '#/components/responses/NotFound' }
 
 components:
 
@@ -937,43 +897,103 @@ components:
         Cursor:
             name: cursor
             in: query
+            description: Curseur opaque (base64)
+            schema: { type: string }
+        NatureOuvrage:
+            name: nature_ouvrage
+            in: query
+            schema:
+                type: string
+                enum: [puits, forage, inconnu]
+        TypeAlimentation:
+            name: type_alimentation
+            in: query
+            schema:
+                type: string
+                enum: [PMH, HVA, PEA, HV, AUTRE]
+        RealisationPar:
+            name: realisation_par
+            in: query
+            schema:
+                type: string
+                enum: [public, prive, inconnu]
+        Etat:
+            name: etat
+            in: query
+            schema:
+                type: string
+                enum: [fonctionnel, en_panne, abandonne, inconnu]
+        Region:
+            name: region
+            in: query
+            schema: { type: string }
+        Departement:
+            name: departement
+            in: query
+            schema: { type: string }
+        SousPrefecture:
+            name: sous_prefecture
+            in: query
+            schema: { type: string }
+        Localite:
+            name: localite
+            in: query
+            description: Recherche insensible aux accents
+            schema: { type: string }
+        AnneeMin:
+            name: annee_min
+            in: query
+            schema: { type: integer, minimum: 1900 }
+        AnneeMax:
+            name: annee_max
+            in: query
+            schema: { type: integer, minimum: 1900 }
+        Bailleur:
+            name: bailleur
+            in: query
+            description: Nom de la source financeuse
             schema: { type: string }
 
     responses:
         BadRequest:
-            description: Requête invalide
+            description: Requête invalide (RFC 7807)
             content:
-                application/problem+json:
+                application/json:
                     schema: { $ref: '#/components/schemas/Problem' }
         Unauthorized:
-            description: Non authentifié
+            description: API key ou JWT manquant/invalide (RFC 7807)
             content:
-                application/problem+json:
+                application/json:
                     schema: { $ref: '#/components/schemas/Problem' }
         Forbidden:
-            description: Non autorisé
+            description: Rôle JWT insuffisant (RFC 7807)
             content:
-                application/problem+json:
+                application/json:
                     schema: { $ref: '#/components/schemas/Problem' }
         NotFound:
-            description: Ressource introuvable
+            description: Ressource inexistante (RFC 7807)
             content:
-                application/problem+json:
+                application/json:
                     schema: { $ref: '#/components/schemas/Problem' }
         Conflict:
-            description: Conflit
+            description: Conflit métier (RFC 7807)
             content:
-                application/problem+json:
+                application/json:
                     schema: { $ref: '#/components/schemas/Problem' }
         PayloadTooLarge:
-            description: Trop de lignes à exporter (affiner les filtres)
+            description: Export trop volumineux (RFC 7807)
             content:
-                application/problem+json:
+                application/json:
+                    schema: { $ref: '#/components/schemas/Problem' }
+        ValidationError:
+            description: Erreur de validation Pydantic (RFC 7807)
+            content:
+                application/json:
                     schema: { $ref: '#/components/schemas/Problem' }
 
     schemas:
 
-        # ----- Erreur -----
+        # ----- RFC 7807 -----
         Problem:
             type: object
             required: [type, title, status]
@@ -981,10 +1001,11 @@ components:
                 type: { type: string, format: uri }
                 title: { type: string }
                 status: { type: integer }
-                detail: { type: string }
-                instance: { type: string }
+                detail: { type: string, nullable: true }
+                instance: { type: string, nullable: true }
                 errors:
                     type: array
+                    nullable: true
                     items:
                         type: object
                         properties:
@@ -994,6 +1015,7 @@ components:
         # ----- Pagination -----
         PaginationOffset:
             type: object
+            required: [offset, limit]
             properties:
                 offset: { type: integer }
                 limit: { type: integer }
@@ -1001,6 +1023,7 @@ components:
 
         PaginationCursor:
             type: object
+            required: [limit, has_more]
             properties:
                 limit: { type: integer }
                 next_cursor: { type: string, nullable: true }
@@ -1009,6 +1032,7 @@ components:
         # ----- Référentiels -----
         Source:
             type: object
+            required: [id_source, nom, type_source, actif]
             properties:
                 id_source: { type: integer }
                 nom: { type: string }
@@ -1017,17 +1041,16 @@ components:
                     enum: [public, prive, bailleur, etat, autre]
                 actif: { type: boolean }
 
-        TypeOuvrage:
+        RefGeoParent:
             type: object
             properties:
-                id_type_ouvrage: { type: integer }
-                code: { type: string }
-                libelle: { type: string }
-                description: { type: string, nullable: true }
-                actif: { type: boolean }
+                id_geo: { type: integer }
+                niveau: { type: string }
+                nom: { type: string }
 
         RefGeoAdmin:
             type: object
+            required: [id_geo, niveau, nom]
             properties:
                 id_geo: { type: integer }
                 niveau:
@@ -1038,25 +1061,15 @@ components:
                 type_localite:
                     type: string
                     nullable: true
-                    enum: [village, campement, autre]
-                parent:
-                    type: object
-                    nullable: true
-                    properties:
-                        id_geo: { type: integer }
-                        niveau: { type: string }
-                        nom: { type: string }
+                    enum: [village, campement, autre, null]
+                parent: { $ref: '#/components/schemas/RefGeoParent' }
 
         LocaliteResume:
             type: object
+            required: [id_localite, nom_usage]
             properties:
                 id_localite: { type: integer }
                 nom_usage: { type: string }
-                ref_geo:
-                    type: object
-                    properties:
-                        id_geo: { type: integer }
-                        niveau: { type: string }
 
         Localite:
             allOf:
@@ -1071,15 +1084,13 @@ components:
                           items: { type: string }
                       metadata:
                           type: object
-                          additionalProperties: true
-                          description: |
-                              Attributs complémentaires non mappés.
-                              Convention : docs/metadata_conventions.md.
-                              Présent uniquement si ?include=metadata.
+                          nullable: true
+                          description: Présent uniquement si ?include=metadata
 
         # ----- Fichiers -----
         Fichier:
             type: object
+            required: [id_fichier, nom_fichier_original, source, date_reception, statut]
             properties:
                 id_fichier: { type: integer, format: int64 }
                 nom_fichier_original: { type: string }
@@ -1098,6 +1109,7 @@ components:
 
         Feuille:
             type: object
+            required: [id_feuille, id_fichier, nom_feuille, index_feuille, type_contenu, statut_ingestion]
             properties:
                 id_feuille: { type: integer, format: int64 }
                 id_fichier: { type: integer, format: int64 }
@@ -1116,6 +1128,7 @@ components:
         # ----- Mapping -----
         MappingColonne:
             type: object
+            required: [entete_brut, valide_par_utilisateur]
             properties:
                 id_mapping: { type: integer, nullable: true }
                 entete_brut: { type: string }
@@ -1125,6 +1138,7 @@ components:
 
         MappingProposalFeuille:
             type: object
+            required: [id_feuille, nom_feuille, header_row, colonnes]
             properties:
                 id_feuille: { type: integer, format: int64 }
                 nom_feuille: { type: string }
@@ -1133,27 +1147,25 @@ components:
                     type: array
                     items: { $ref: '#/components/schemas/MappingColonne' }
 
+        MappingValidationColonne:
+            type: object
+            required: [entete_brut]
+            properties:
+                entete_brut: { type: string }
+                champ_cible: { type: string, nullable: true }
+
         MappingValidation:
             type: object
             required: [colonnes]
             properties:
                 colonnes:
                     type: array
-                    items:
-                        type: object
-                        required: [entete_brut, champ_cible]
-                        properties:
-                            entete_brut: { type: string }
-                            champ_cible:
-                                type: string
-                                nullable: true
-                                description: |
-                                    Champ cible (ex. 'region_brute', 'localite_brute').
-                                    NULL = colonne ignorée (va dans donnees_brutes).
+                    items: { $ref: '#/components/schemas/MappingValidationColonne' }
 
         # ----- Ingestion -----
         IngestionRun:
             type: object
+            required: [id_run, id_fichier, mode, statut, started_at]
             properties:
                 id_run: { type: integer, format: int64 }
                 id_fichier: { type: integer, format: int64 }
@@ -1172,38 +1184,16 @@ components:
                 started_at: { type: string, format: date-time }
                 finished_at: { type: string, format: date-time, nullable: true }
 
-        RunComplet:
-            type: object
-            required: [mode]
-            properties:
-                id_feuille: { type: integer, format: int64, nullable: true }
-                mode: { type: string, enum: [complet] }
-
-        RunEchantillon:
-            type: object
-            required: [mode, limite_lignes]
-            properties:
-                id_feuille: { type: integer, format: int64, nullable: true }
-                mode: { type: string, enum: [echantillon] }
-                limite_lignes: { type: integer, minimum: 1 }
-
-        RunPlage:
-            type: object
-            required: [mode, ligne_debut, ligne_fin]
-            properties:
-                id_feuille: { type: integer, format: int64, nullable: true }
-                mode: { type: string, enum: [plage] }
-                ligne_debut: { type: integer, minimum: 1 }
-                ligne_fin: { type: integer, minimum: 1 }
-
         LigneIngeree:
             type: object
+            required: [id_ligne, id_feuille, num_ligne_source, statut_qualite]
             properties:
                 id_ligne: { type: integer, format: int64 }
                 id_feuille: { type: integer, format: int64 }
                 num_ligne_source: { type: integer }
                 localite_brute: { type: string, nullable: true }
                 type_ouvrage_brut: { type: string, nullable: true }
+                usage_ouvrage_brut: { type: string, nullable: true }
                 latitude_decimal: { type: number, nullable: true }
                 longitude_decimal: { type: number, nullable: true }
                 geom: { $ref: '#/components/schemas/GeoJSONPoint' }
@@ -1221,50 +1211,66 @@ components:
                       donnees_brutes:
                           type: object
                           additionalProperties: true
-                          description: Ligne Excel brute intégrale
 
         # ----- Ouvrages -----
+        CGPESummary:
+            type: object
+            properties:
+                existe: { type: boolean }
+                statut:
+                    type: string
+                    nullable: true
+                    enum: [fonctionnel, non_fonctionnel, inconnu, null]
+
+        FinancementResume:
+            type: object
+            properties:
+                id_projet: { type: integer, format: int64 }
+                nom_projet: { type: string }
+                bailleur: { type: string, nullable: true }
+                role:
+                    type: string
+                    enum: [principal, co_financement]
+
         Ouvrage:
             type: object
+            required: [id_ouvrage, etat, localite]
             properties:
                 id_ouvrage: { type: integer, format: int64 }
                 code_ouvrage: { type: string, nullable: true }
-                type_ouvrage:
-                    type: object
-                    properties:
-                        code: { type: string }
-                        libelle: { type: string }
+                nature_ouvrage:
+                    type: string
+                    nullable: true
+                    enum: [puits, forage, inconnu, null]
+                type_alimentation:
+                    type: string
+                    nullable: true
+                    enum: [PMH, HVA, PEA, HV, AUTRE, null]
+                realisation_par:
+                    type: string
+                    nullable: true
+                    enum: [public, prive, inconnu, null]
                 etat:
                     type: string
                     enum: [fonctionnel, en_panne, abandonne, inconnu]
                 annee_realisation: { type: integer, nullable: true }
                 localite: { $ref: '#/components/schemas/LocaliteResume' }
                 geom: { $ref: '#/components/schemas/GeoJSONPoint' }
-                cgpe:
-                    type: object
-                    nullable: true
-                    properties:
-                        existe: { type: boolean }
-                        statut: { type: string, nullable: true }
+                cgpe: { $ref: '#/components/schemas/CGPESummary' }
                 financements:
                     type: array
-                    items:
-                        type: object
-                        properties:
-                            id_projet: { type: integer, format: int64 }
-                            nom_projet: { type: string }
-                            bailleur: { type: string }
-                            role: { type: string, enum: [principal, co_financement] }
+                    items: { $ref: '#/components/schemas/FinancementResume' }
                 metadata:
                     type: object
-                    additionalProperties: true
-                    description: |
-                        Attributs complémentaires non mappés.
-                        Convention : docs/metadata_conventions.md.
-                        Présent uniquement si ?include=metadata.
+                    nullable: true
+                    description: Présent uniquement si ?include=metadata
+                qualite_eau:
+                    type: object
+                    nullable: true
 
         CGPE:
             type: object
+            required: [id_cgpe, id_localite, existe]
             properties:
                 id_cgpe: { type: integer }
                 id_localite: { type: integer }
@@ -1274,36 +1280,33 @@ components:
                 statut:
                     type: string
                     nullable: true
-                    enum: [fonctionnel, non_fonctionnel, inconnu]
+                    enum: [fonctionnel, non_fonctionnel, inconnu, null]
                 nb_membres: { type: integer, nullable: true }
                 commentaire: { type: string, nullable: true }
-                metadata:
-                    type: object
-                    additionalProperties: true
-                    description: |
-                        Attributs complémentaires non mappés.
-                        Convention : docs/metadata_conventions.md.
-                        Présent uniquement si ?include=metadata.
+                metadata: { type: object, nullable: true }
 
         # ----- Qualité -----
+        QualiteStats:
+            type: object
+            properties:
+                ok: { type: integer, default: 0 }
+                localite_non_resolue: { type: integer, default: 0 }
+                geom_invalide: { type: integer, default: 0 }
+                type_ouvrage_inconnu: { type: integer, default: 0 }
+                rejete: { type: integer, default: 0 }
+                doublon_suspect: { type: integer, default: 0 }
+
         QualiteFichier:
             type: object
+            required: [id_fichier, nom_fichier, source, statut, nb_lignes_total, qualite, taux_reussite]
             properties:
                 id_fichier: { type: integer, format: int64 }
                 nom_fichier: { type: string }
                 source: { type: string }
                 statut: { type: string }
                 nb_lignes_total: { type: integer }
-                qualite:
-                    type: object
-                    properties:
-                        ok: { type: integer }
-                        localite_non_resolue: { type: integer }
-                        geom_invalide: { type: integer }
-                        type_ouvrage_inconnu: { type: integer }
-                        rejete: { type: integer }
-                        doublon_suspect: { type: integer }
-                taux_reussite: { type: number }
+                qualite: { $ref: '#/components/schemas/QualiteStats' }
+                taux_reussite: { type: number, minimum: 0, maximum: 1 }
 
         # ----- GeoJSON -----
         GeoJSONPoint:
@@ -1311,37 +1314,39 @@ components:
             nullable: true
             required: [type, coordinates]
             properties:
-                type: { type: string, enum: [Point] }
+                type:
+                    type: string
+                    enum: [Point]
                 coordinates:
                     type: array
                     minItems: 2
                     maxItems: 2
                     items: { type: number }
-                    description: "[longitude, latitude]"
+                    description: "[longitude, latitude] (RFC 7946)"
+
+        GeoJSONFeature:
+            type: object
+            required: [type, geometry, properties]
+            properties:
+                type:
+                    type: string
+                    enum: [Feature]
+                id: { type: string, nullable: true }
+                geometry: { $ref: '#/components/schemas/GeoJSONPoint' }
+                properties:
+                    type: object
+                    additionalProperties: true
 
         FeatureCollectionPoints:
             type: object
             required: [type, features]
             properties:
-                type: object
-                required: [type, features]
-                properties:
-                    type: { type: string, enum: [FeatureCollection] }
-                    features:
-                        type: array
-                        items:
-                            type: object
-                            required: [type, geometry, properties]
-                            properties:
-                                type: { type: string, enum: [Feature] }
-                                id: { type: string }
-                                geometry: { $ref: '#/components/schemas/GeoJSONPoint' }
-                                properties:
-                                    type: object
-                                    additionalProperties: true
-                    meta:
-                        type: object
-                        properties:
-                            count: { type: integer }
-                            id_fichier: { type: integer, format: int64 }
-                            nom_fichier: { type: string }
+                type:
+                    type: string
+                    enum: [FeatureCollection]
+                features:
+                    type: array
+                    items: { $ref: '#/components/schemas/GeoJSONFeature' }
+                meta:
+                    type: object
+                    additionalProperties: true

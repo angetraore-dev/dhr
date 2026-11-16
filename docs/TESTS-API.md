@@ -1002,3 +1002,8 @@ GROUP BY 1,2,3,4
 HAVING COUNT(*) > 1;
 -- Attendu : 0 ligne
 ```
+
+> curl.exe -s -H "X-API-Key: dhr_dev_read_key_change_me" "http://localhost:8000/v1/ouvrages/export?format=xlsx" -o export_complet.xlsx 
+> curl.exe -s -H "X-API-Key: dhr_dev_read_key_change_me" "http://localhost:8000/v1/ouvrages/export?format=xlsx&nature_ouvrage=puits" -o export_puits.xlsx
+> curl.exe -s -H "X-API-Key: dhr_dev_read_key_change_me" "http://localhost:8000/v1/ouvrages/export?nature_ouvrage=puits" -o export_puits.xlsx 
+> curl.exe -s -H "X-API-Key: dhr_dev_read_key_change_me" "http://localhost:8000/v1/ouvrages/export?nature_ouvrage=forage&type_alimentation=HV" -o export_forages_hv.xlsx
