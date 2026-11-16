@@ -59,12 +59,12 @@ from pathlib import Path
 
 sys.path.insert(0, "/app")
 
-from sqlalchemy import func, select
 
 from app.db import SessionLocal
 from app.models import Feuille, Fichier, LigneIngeree, Ouvrage, Source
 from app.services.ingestion import _hash_fichier, detecter_feuilles
 from app.services.run import creer_run, executer_pipeline
+from sqlalchemy import func, select
 
 
 def _preparer_fichier_depuis_chemin(db, chemin: str, force: bool = False) -> Fichier:

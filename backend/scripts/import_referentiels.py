@@ -12,6 +12,7 @@ import traceback
 
 sys.path.insert(0, "/app")
 
+
 from app.db import SessionLocal
 from app.services.import_localites import importer_localites
 

@@ -9,11 +9,11 @@ import traceback
 
 sys.path.insert(0, "/app")
 
-from sqlalchemy import func, select
 
 from app.db import SessionLocal
 from app.models import LigneIngeree
 from app.services.rapprochement import rapprocher_lignes_run
+from sqlalchemy import func, select
 
 
 def main(id_run: int) -> None:
@@ -22,7 +22,6 @@ def main(id_run: int) -> None:
         print(f"\n{'='*70}")
         print(f"Rapprochement du run {id_run}")
         print(f"{'='*70}")
-
         stats = rapprocher_lignes_run(db, id_run, seuil_trigram=0.6)
         db.commit()
 

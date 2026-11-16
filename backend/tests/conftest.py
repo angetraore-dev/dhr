@@ -13,18 +13,16 @@ Prérequis :
 """
 from __future__ import annotations
 
-import os
 from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from app.config import get_settings
+from app.db import get_db
+from app.main import app
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
-
-from app.config import get_settings
-from app.db import Base, get_db
-from app.main import app
 
 
 # =====================================================================

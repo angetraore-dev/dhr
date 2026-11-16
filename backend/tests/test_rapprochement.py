@@ -9,8 +9,6 @@ Couvre :
 """
 from __future__ import annotations
 
-import pytest
-
 from app.models import IngestionRun, LigneIngeree
 from app.services.rapprochement import rapprocher_lignes_run
 

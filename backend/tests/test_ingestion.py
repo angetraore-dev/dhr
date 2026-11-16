@@ -13,8 +13,6 @@ Couvre :
 """
 from __future__ import annotations
 
-import pytest
-
 from app.models import LigneIngeree
 from app.services.ingestion import (
     _est_ligne_rejetee,
@@ -97,13 +95,13 @@ class TestIngestionFichier:
         assert len(lignes) == 2
 
         # Ligne 1 : valide
-        ligne_ok = next(l for l in lignes if l.statut_qualite == "ok")
+        ligne_ok = next(lig for lig in lignes if lig.statut_qualite == "ok")
         assert ligne_ok.localite_brute == "LOC_TEST"
         assert ligne_ok.latitude_decimal == 7.5
         assert ligne_ok.longitude_decimal == -5.5
 
         # Ligne 2 : geom_invalide
-        ligne_invalide = next(l for l in lignes if l.statut_qualite == "geom_invalide")
+        ligne_invalide = next(lig for lig in lignes if lig.statut_qualite == "geom_invalide")
         assert ligne_invalide.latitude_decimal is None
         assert "Coordonnées manquantes" in ligne_invalide.message_qualite
 

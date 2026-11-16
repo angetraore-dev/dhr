@@ -32,9 +32,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from app import models  # noqa: F401, E402
 from app.config import get_settings  # noqa: E402
 from app.db import Base  # noqa: E402
-from app import models  # noqa: F401, E402
 
 # --- Config Alembic ---
 config = context.config

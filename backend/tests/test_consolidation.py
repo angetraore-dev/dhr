@@ -11,8 +11,6 @@ Couvre :
 """
 from __future__ import annotations
 
-import pytest
-
 from app.models import IngestionRun, LigneIngeree, Ouvrage
 from app.services.consolidation import (
     _extraire_qualite_eau,
@@ -177,7 +175,7 @@ class TestConsolidationLigne:
         db.flush()
 
         # 1er ouvrage à (7.5, -5.5)
-        ligne1 = _creer_ligne_ok(
+        _creer_ligne_ok(
             db, feuille.id_feuille, run.id_run, localite_test.id_localite,
             lat=7.5, lon=-5.5, donnees_brutes={"Code ouvrage": "CODE_DUP"},
         )

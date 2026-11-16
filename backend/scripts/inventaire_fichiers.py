@@ -1,6 +1,7 @@
 ﻿"""Inventaire des fichiers Excel."""
 import sys
 from pathlib import Path
+
 import openpyxl
 
 
@@ -28,10 +29,10 @@ def inventaire(chemin: str) -> None:
             entetes = []
             for cell in next(ws.iter_rows(min_row=1, max_row=1, values_only=False)):
                 entetes.append(str(cell.value) if cell.value is not None else "")
-            print(f"     Entetes ({len(entetes)}) :")
+            print(f"  Entetes ({len(entetes)}) :")
             for i, h in enumerate(entetes):
-                print(f"       [{i}] {h!r}")
-            print(f"     Exemples de donnees :")
+                print(f"  [{i}] {h!r}")
+            print("  Exemples de donnees :")
             for row_idx, row in enumerate(
                 ws.iter_rows(min_row=2, max_row=min(4, nb_lignes), values_only=True),
                 start=1,

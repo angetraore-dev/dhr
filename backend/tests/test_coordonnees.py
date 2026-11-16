@@ -15,7 +15,6 @@ Couvre les formats :
 from __future__ import annotations
 
 import pytest
-
 from app.services.coordonnees import parser_coordonnees, parser_une_coordonnee
 
 

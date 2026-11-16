@@ -68,7 +68,7 @@ services:
       - ./backend/alembic:/app/alembic:rw
       - ./backend/alembic.ini:/app/alembic.ini:ro
       - ./backend/entrypoint.sh:/app/entrypoint.sh:ro
-      - ./backend/scripts:/app/scripts:ro
+      - ./backend/scripts:/app/scripts:rw
       - ./backend/tests:/app/tests:rw
       - uploads_data:/app/uploads
     depends_on:

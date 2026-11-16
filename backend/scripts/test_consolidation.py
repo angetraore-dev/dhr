@@ -9,11 +9,11 @@ import traceback
 
 sys.path.insert(0, "/app")
 
-from sqlalchemy import func, select
 
 from app.db import SessionLocal
 from app.models import LigneIngeree, Ouvrage
 from app.services.consolidation import consolider_lignes_run
+from sqlalchemy import func, select
 
 
 def main(id_run: int) -> None:
@@ -25,7 +25,6 @@ def main(id_run: int) -> None:
 
         stats = consolider_lignes_run(db, id_run)
         db.commit()
-
         print("\nRésultat :")
         print(f"  Lignes traitées : {stats['total_lignes']}")
         print(f"  Ouvrages créés : {stats['ouvrages_crees']}")

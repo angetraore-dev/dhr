@@ -10,11 +10,11 @@ from pathlib import Path
 
 sys.path.insert(0, "/app")
 
-from sqlalchemy import func, select
 
 from app.db import SessionLocal
 from app.models import Feuille, Fichier, IngestionRun, LigneIngeree, Source
 from app.services.ingestion import detecter_feuilles, ingerer_fichier
+from sqlalchemy import func, select
 
 
 def test(chemin: str) -> None:
@@ -107,8 +107,8 @@ def test(chemin: str) -> None:
         lignes = db.scalars(select(LigneIngeree).where(
             LigneIngeree.id_run == run.id_run
         ).limit(3)).all()
-        for l in lignes:
-            print(f"    - localite={l.localite_brute!r}, lat={l.latitude_decimal}, lon={l.longitude_decimal}, type={l.type_ouvrage_brut!r}", flush=True)
+        for lig in lignes:
+            print(f"    - localite={lig.localite_brute!r}, lat={lig.latitude_decimal}, lon={lig.longitude_decimal}, type={lig.type_ouvrage_brut!r}", flush=True)
 
     except Exception as e:
         print(f"\n[X] EXCEPTION : {type(e).__name__}: {e}", flush=True)
