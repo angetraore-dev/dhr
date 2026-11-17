@@ -56,9 +56,6 @@ class LigneIngeree(BaseModel):
     id_feuille: int
     num_ligne_source: int
     localite_brute: str | None = None
-    # Aligné sur la Bible § 2.2.B (P12) et models.py :
-    # - type_ouvrage_brut (valeur brute de la colonne "Type_Ouvrage")
-    # - usage_ouvrage_brut (valeur brute de la colonne "Usage_Ouvrage")
     type_ouvrage_brut: str | None = None
     usage_ouvrage_brut: str | None = None
     latitude_decimal: float | None = None
@@ -68,10 +65,11 @@ class LigneIngeree(BaseModel):
         "ok",
         "localite_non_resolue",
         "geom_invalide",
-        "type_ouvrage_inconnu",   # ← pas "type_alimentation_inconnu"
+        "type_ouvrage_inconnu",
         "rejete",
         "doublon_suspect",
     ]
+    message_qualite: str | None = None
     annee_projet: int | None = None
     bailleur_brut: str | None = None
 

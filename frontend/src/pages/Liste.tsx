@@ -105,6 +105,9 @@ export default function Liste() {
                     <thead className="bg-gray-50 border-b">
                     <tr>
                         <th className="text-left px-4 py-3 font-medium text-gray-700">ID / Code</th>
+                        <th className="text-left px-4 py-3 font-medium text-gray-700">Région</th>
+                        <th className="text-left px-4 py-3 font-medium text-gray-700">Département</th>
+                        <th className="text-left px-4 py-3 font-medium text-gray-700">Sous-préfecture</th>
                         <th className="text-left px-4 py-3 font-medium text-gray-700">Localité</th>
                         <th className="text-left px-4 py-3 font-medium text-gray-700">Nature</th>
                         <th className="text-left px-4 py-3 font-medium text-gray-700">Alimentation</th>
@@ -117,7 +120,7 @@ export default function Liste() {
                     <tbody>
                     {isLoading && (
                         <tr>
-                            <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                            <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
                                 Chargement des ouvrages...
                             </td>
                         </tr>
@@ -125,13 +128,13 @@ export default function Liste() {
 
                     {!isLoading && data?.data.length === 0 && (
                         <tr>
-                            <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                            <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
                                 Aucun ouvrage trouvé pour ces critères.
                             </td>
                         </tr>
                     )}
 
-                    {data?.data.map((o: Ouvrage) => (
+                    {data?.data.map((o: Ouvrage & { region?: string; departement?: string; sous_prefecture?: string }) => (
                         <tr key={o.id_ouvrage} className="border-b hover:bg-gray-50">
                             <td className="px-4 py-3">
                                 <div className="font-medium text-gray-900">#{o.id_ouvrage}</div>
@@ -141,6 +144,9 @@ export default function Liste() {
                                     </div>
                                 )}
                             </td>
+                            <td className="px-4 py-3 text-gray-700">{o.region || '—'}</td>
+                            <td className="px-4 py-3 text-gray-700">{o.departement || '—'}</td>
+                            <td className="px-4 py-3 text-gray-700">{o.sous_prefecture || '—'}</td>
                             <td className="px-4 py-3 font-medium text-gray-800">
                                 {o.localite.nom_usage}
                             </td>
@@ -232,6 +238,21 @@ export default function Liste() {
                         {detailOuvrage && (
                             <div className="space-y-3 text-sm">
                                 <dl className="grid grid-cols-[140px_1fr] gap-y-2">
+                                    <dt className="text-gray-500">Région</dt>
+                                    <dd className="font-medium text-gray-900">
+                                        {(detailOuvrage as any).region || '—'}
+                                    </dd>
+
+                                    <dt className="text-gray-500">Département</dt>
+                                    <dd className="font-medium text-gray-900">
+                                        {(detailOuvrage as any).departement || '—'}
+                                    </dd>
+
+                                    <dt className="text-gray-500">Sous-préfecture</dt>
+                                    <dd className="font-medium text-gray-900">
+                                        {(detailOuvrage as any).sous_prefecture || '—'}
+                                    </dd>
+
                                     <dt className="text-gray-500">Localité</dt>
                                     <dd className="font-medium text-gray-900">
                                         {detailOuvrage.localite.nom_usage}
@@ -272,58 +293,6 @@ export default function Liste() {
                                         </p>
                                     </section>
                                 )}
-
-                                {detailOuvrage.qualite_eau &&
-                                    Object.keys(detailOuvrage.qualite_eau).length > 0 && (
-                                        <section className="pt-3 border-t">
-                                            <h4 className="font-semibold text-gray-900 mb-1">
-                                                Qualité de l'eau
-                                            </h4>
-                                            <dl className="grid grid-cols-[180px_1fr] gap-y-1 text-xs">
-                                                {Object.entries(
-                                                    detailOuvrage.qualite_eau
-                                                ).map(([k, v]) => (
-                                                    <div key={k} className="contents">
-                                                        <dt className="text-gray-500 truncate">
-                                                            {k}
-                                                        </dt>
-                                                        <dd className="text-gray-800">
-                                                            {String(v)}
-                                                        </dd>
-                                                    </div>
-                                                ))}
-                                            </dl>
-                                        </section>
-                                    )}
-
-                                {detailOuvrage.metadata &&
-                                    Object.keys(detailOuvrage.metadata).length > 0 && (
-                                        <section className="pt-3 border-t">
-                                            <h4 className="font-semibold text-gray-900 mb-1">
-                                                Métadonnées complémentaires
-                                            </h4>
-                                            <dl className="grid grid-cols-[180px_1fr] gap-y-1 text-xs">
-                                                {Object.entries(
-                                                    detailOuvrage.metadata
-                                                ).map(([k, v]) => (
-                                                    <div key={k} className="contents">
-                                                        <dt
-                                                            className="text-gray-500 truncate"
-                                                            title={k}
-                                                        >
-                                                            {k}
-                                                        </dt>
-                                                        <dd
-                                                            className="text-gray-800 truncate"
-                                                            title={String(v)}
-                                                        >
-                                                            {String(v)}
-                                                        </dd>
-                                                    </div>
-                                                ))}
-                                            </dl>
-                                        </section>
-                                    )}
                             </div>
                         )}
                     </div>

@@ -2656,7 +2656,19 @@ Les endpoints sont groupés par tag (cf. `openapi.yaml`). Pour chaque endpoint :
 | `GET`   | `/ouvrages/export.csv` | API key | Export CSV streamé (UTF-8, séparateur `;`). Mêmes filtres.                                                                                                                                                    |
 | `GET`   | `/cgpe/{id}`           | API key | Détail d'un CGPE. `?include=metadata`.                                                                                                                                                                        |
 
-**Note** : les filtres `type_ouvrage` et `district` **n'existent pas** (remplacés par `nature_ouvrage` + `type_alimentation` + `realisation_par` ; `district` retiré, décision 6). Le KPI `par_district` reste dans la feuille Synthèse de l'export Excel (cf. 1.4 décision 6).
+
+**Note** : 
+- Ajouter `region/departement/sous_prefecture` dans le schéma `Ouvrage`
+```bash
+class Ouvrage(BaseModel):
+    ...
+    localite: LocaliteResume
+    region: str | None = None           # ← AJOUT
+    departement: str | None = None      # ← AJOUT
+    sous_prefecture: str | None = None  # ← AJOUT
+```
+
+- les filtres `type_ouvrage` et `district` **n'existent pas** (remplacés par `nature_ouvrage` + `type_alimentation` + `realisation_par` ; `district` retiré, décision 6). Le KPI `par_district` reste dans la feuille Synthèse de l'export Excel (cf. 1.4 décision 6).
 
 #### 4.3.5 Carto (`/carto`)
 
@@ -3046,16 +3058,26 @@ api.qualiteFichier(idFichier: number): Promise<QualiteFichier>
 
 #### 5.4.4 Liste (`/liste`)
 
-**État actuel** : ⏳ **stub** (`pages/Liste.tsx` → « Page Liste — à implémenter (6.5) »).
+**État actuel** : ✅ **implémentée** (`pages/Liste.tsx`).
 
-**Cible** :
-- Tableau paginé (cursor) des ouvrages : code, nature, alimentation, réalisation, état, localité, sous-préfecture, département, région, année, actions.
+**Fonctionnalités** :
+- Tableau paginé (cursor) des ouvrages : ID/Code, **Région**, **Département**, **Sous-préfecture**, Localité, Nature, Alimentation, Réalisation, État, Année, actions.
 - Filtres : mêmes que `FiltersPanel` (cascade géo + métier + année).
-- Bouton **Exporter Excel** → `window.open('/v1/ouvrages/export?...')` avec les filtres courants.
-- Bouton **Exporter CSV** → idem avec `/ouvrages/export.csv`.
+- Bouton **Exporter Excel** → `api.exportOuvrages('xlsx', params)` (fetch + blob).
+- Bouton **Exporter CSV** → `api.exportOuvrages('csv', params)`.
 - Pagination : bouton « Charger plus » (cursor).
-- Loading : `Skeleton`.
+- Loading : `Skeleton` (Phase D).
 - État vide : message + icône.
+- **Modale de détail** : attributs métier, coordonnées GPS, `qualite_eau`, `metadata`.
+
+**Cible Phase D** :
+- **Colonnes géographiques** : la table doit afficher **4 niveaux** (région → département → sous-préfecture → localité), pas seulement la localité.
+   - **Backend** : `/ouvrages` doit exposer `region`, `departement`, `sous_prefecture` dans la réponse (via `v_points_consolides` ou jointures `ref_geo_admin`).
+   - **Frontend** : ajouter les 3 colonnes dans le tableau de `Liste.tsx`.
+- **Skeletons** à la place de « Chargement... ».
+- **Message d'erreur** si l'export échoue (413, 500).
+**les colonnes géographiques proviennent de v_points_consolides (pas de v_points_par_fichier)**
+
 
 #### 5.4.5 Qualité (`/qualite`)
 
@@ -3729,23 +3751,25 @@ Cette section recense les **écarts connus**, les **contraintes acceptées** et 
 
 ### 7.4 Contraintes acceptées au MVP
 
-| #   | Contrainte                                         | Raison                          | V2                                       |
-|-----|----------------------------------------------------|---------------------------------|------------------------------------------|
-| A1  | Pas de filtre `district` dans l'UI                 | Réforme territoriale            | —                                        |
-| A2  | Dédoublonnage `code_ouvrage` sans `id_localite`    | Risque de fusion à tort accepté | Ajouter `id_localite`                    |
-| A3  | Trigram sans filtre sous-préfecture                | Faux positifs possibles         | Utiliser `sous_prefecture_brute`         |
-| A4  | Lignes rejetées non stockées                       | Pollue la base                  | Stocker avec `statut_qualite = 'rejete'` |
-| A5  | Alias localités non alimentés                      | Pas critique au MVP             | UI de correction                         |
-| A6  | CGPE non créés                                     | V2                              | Détection + création                     |
-| A7  | Projets de financement non créés                   | V2                              | UI de gestion                            |
-| A8  | Import auto localités                              | Manuel suffit                   | Import auto sur détection feuille        |
-| A9  | Création manuelle localités/ouvrages               | V2                              | UI dédiée                                |
-| A10 | Pas de gestion utilisateurs (rôles)                | JWT manuel suffit               | Table `utilisateur` + rôles              |
-| A11 | Pas de déploiement prod                            | MVP local Docker                | CI/CD + déploiement                      |
-| A12 | `Localite.geom_centre` non exposé                  | V2                              | Sérialisation GeoJSON                    |
-| A13 | Filtre bailleur exposé sans données                | Attente financements réels      | —                                        |
-| A14 | `metadata` non normalisé (`brut_<entête>`)         | Zéro effort MVP                 | Normalisation V2 (promotion)             |
-| A15 | `attribut_definition` + `ouvrage_attribut` absents | V2                              | Promotion des clés critiques             |
+| #   | Contrainte                                                         | Raison                                       | V2                                                |
+|-----|--------------------------------------------------------------------|----------------------------------------------|---------------------------------------------------|
+| A1  | Pas de filtre `district` dans l'UI                                 | Réforme territoriale                         | —                                                 |
+| A2  | Dédoublonnage `code_ouvrage` sans `id_localite`                    | Risque de fusion à tort accepté              | Ajouter `id_localite`                             |
+| A3  | Trigram sans filtre sous-préfecture                                | Faux positifs possibles                      | Utiliser `sous_prefecture_brute`                  |
+| A4  | Lignes rejetées non stockées                                       | Pollue la base                               | Stocker avec `statut_qualite = 'rejete'`          |
+| A5  | Alias localités non alimentés                                      | Pas critique au MVP                          | UI de correction                                  |
+| A6  | CGPE non créés                                                     | V2                                           | Détection + création                              |
+| A7  | Projets de financement non créés                                   | V2                                           | UI de gestion                                     |
+| A8  | Import auto localités                                              | Manuel suffit                                | Import auto sur détection feuille                 |
+| A9  | Création manuelle localités/ouvrages                               | V2                                           | UI dédiée                                         |
+| A10 | Pas de gestion utilisateurs (rôles)                                | JWT manuel suffit                            | Table `utilisateur` + rôles                       |
+| A11 | Pas de déploiement prod                                            | MVP local Docker                             | CI/CD + déploiement                               |
+| A12 | `Localite.geom_centre` non exposé                                  | V2                                           | Sérialisation GeoJSON                             |
+| A13 | Filtre bailleur exposé sans données                                | Attente financements réels                   | —                                                 |
+| A14 | `metadata` non normalisé (`brut_<entête>`)                         | Zéro effort MVP                              | Normalisation V2 (promotion)                      |
+| A15 | `attribut_definition` + `ouvrage_attribut` absents                 | V2                                           | Promotion des clés critiques                      |
+| A17 | 	`GET /ouvrages` n'expose pas region`/departement/sous_prefecture` | 	Le schéma `Ouvrage` ne les a pas (V1)       | 	Ajouter les 3 champs (Phase D)                   |
+| B8  | 	`GET /ouvrages n'expose pas region/departement/sous_prefecture`   | 	`schemas/ouvrages.py + routers/ouvrages.py` | 	Ajouter les 3 champs (jointures `ref_geo_admin`) |
 
 ### 7.5 Points ouverts du handoff (statut)
 

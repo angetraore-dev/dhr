@@ -1,10 +1,10 @@
 
 ---
 
-# HANDOFF TECHNIQUE — Projet DHR (v1.2)
+# HANDOFF TECHNIQUE — Projet DHR (v1.3)
 
-**Date** : 16 novembre 2026
-**Statut global** : Backend 100 % validé (54/54 tests, Ruff OK). Frontend en cours de validation (pages : Fichiers, Mapping, Carte, Liste, Qualité, Paramètres). Corrections d'écarts en cours.
+**Date** : 17 novembre 2026
+**Statut global** : Backend 100 % validé (54/54 tests, Ruff OK). Frontend en cours de validation (5 fichiers validés, 3 corrigés, 6 à auditer). Bible mise à jour avec les décisions récentes.
 
 ---
 
@@ -28,9 +28,9 @@
 ### 1.2 Modèle métier (ADR-014)
 
 - **3 champs sémantiques** sur `ouvrage` :
-    - `nature_ouvrage` : `puits` | `forage` | `inconnu`
-    - `type_alimentation` : `PMH` | `HVA` | `PEA` | `HV` | `AUTRE`
-    - `realisation_par` : `public` | `prive` | `inconnu`
+  - `nature_ouvrage` : `puits` | `forage` | `inconnu`
+  - `type_alimentation` : `PMH` | `HVA` | `PEA` | `HV` | `AUTRE`
+  - `realisation_par` : `public` | `prive` | `inconnu`
 - **Pas de `type_ouvrage`** legacy.
 - **Pas de `district`** (sauf KPI export).
 - `metadata` (JSONB) + `qualite_eau` (JSONB, nullable).
@@ -80,6 +80,13 @@
 | B7 | `MappingValidation` unicité `entete_brut` | `schemas/fichiers.py` | ✅ |
 | Bug Pydantic | `from __future__ import annotations` retiré de `deps.py`, `carto.py`, `fichiers.py` | — | ✅ |
 
+### 2.5 Écarts backend **restants**
+
+| # | Écart | Fichier | Priorité |
+|---|-------|---------|----------|
+| **B8** | `GET /ouvrages` n'expose pas `region`/`departement`/`sous_prefecture` | `schemas/ouvrages.py` + `routers/ouvrages.py` | 🟠 Haute (nécessaire pour `Liste.tsx`) |
+| **D6** | `LigneIngeree` (schéma Pydantic) n'expose pas `message_qualite` | `schemas/ingestion.py` | 🟠 Haute (nécessaire pour `Qualite.tsx`) |
+
 ---
 
 ## 3. Frontend — État en cours
@@ -93,8 +100,8 @@
 | `src/lib/filters.ts` | ✅ | `Filters` + `EMPTY_FILTERS` centralisés |
 | `src/components/FiltersPanel.tsx` | ✅ | Cascade géo, reset, debounce, `EMPTY_FILTERS` importé |
 | `src/pages/Liste.tsx` | ✅ | Tableau, export, modale détail, `FiltersPanel` importé |
-| `src/pages/Carte.tsx` | ⚠️ | Corrigé (imports), **reste : sélecteur `id_run` + palette par qualité en mode Fichier** |
-| `src/components/MapView.tsx` | ⚠️ | Formes (carré/losange), `qualite_eau` popup, **reste : palette conditionnelle `mode`** |
+| `src/pages/Carte.tsx` | ✅ | **Sélecteur `id_run`** + légende conditionnelle + `mode` passé à `MapView` |
+| `src/components/MapView.tsx` | ✅ | **Palette conditionnelle** (qualité en mode Fichier), formes, `qualite_eau` popup |
 | `src/pages/Qualite.tsx` | ⚠️ | Corrigé, **reste : `message_qualite` (backend) + skeletons** |
 
 ### 3.2 Fichiers à valider
@@ -108,17 +115,14 @@
 | `src/pages/Parametres.tsx` | ⏳ |
 | `src/App.tsx` | ⏳ |
 
-### 3.3 Écarts frontend identifiés
+### 3.3 Écarts frontend **restants**
 
 | # | Écart | Fichier | Priorité |
 |---|-------|---------|----------|
-| F2a | Formes (carré/losange) | `MapView.tsx` | ✅ fait |
-| F2b | `qualite_eau` popup | `MapView.tsx` | ✅ fait |
-| F2c | Palette conditionnelle (qualité en mode Fichier) | `MapView.tsx` + `Carte.tsx` | ⏳ |
-| F3 | Export `fetch` + `blob` | `api.ts` | ✅ fait |
-| F5 | 401 → redirect `/parametres` | `api.ts` | ✅ fait |
-| F6 | Skeletons | Toutes les pages | ⏳ |
-| **Nouveau** | Sélecteur `id_run` en mode Fichier | `Carte.tsx` | ⏳ |
+| **F4** | `OLD_Carte.tsx` traîne dans `pages/` | `pages/` | 🟡 Basse |
+| **F6** | Skeletons au lieu de « Chargement... » | Toutes les pages | 🟡 Basse |
+| **F7** | `Liste.tsx` : ajouter colonnes `region`/`departement`/`sous_prefecture` | `Liste.tsx` | 🟠 Haute (demande client) |
+| **F9** | `Parametres.tsx` : bouton « Supprimer le JWT » | `Parametres.tsx` | 🟡 Basse |
 
 ---
 
@@ -126,42 +130,68 @@
 
 ### 4.1 Décisions frontend
 
-| # | Décision | Justification |
-|---|----------|---------------|
-| D1 | `Filters` + `EMPTY_FILTERS` dans `src/lib/filters.ts` | Évite duplication, warning HMR |
-| D2 | Sélecteur `id_run` dans `Carte.tsx` (mode Fichier) | Résout le problème des 3098 points ; respecte la Bible (G5, G8) |
-| D3 | Palette par `statut_qualite` en mode Fichier (à implémenter) | Cohérent avec la sémantique (brut = qualité) |
-| D4 | Pas de dédoublonnage à l'ingestion | Contredit la Bible (G5, G8) ; préférer le diff entre runs (V2) |
-| D5 | Lignes `rejete` non stockées | Conforme à la Bible § 3.1.6 ; V2 pour les stocker |
+| # | Décision | Justification | Statut |
+|---|----------|---------------|--------|
+| D1 | `Filters` + `EMPTY_FILTERS` dans `src/lib/filters.ts` | Évite duplication, warning HMR | ✅ |
+| D2 | Sélecteur `id_run` dans `Carte.tsx` (mode Fichier) | Résout le problème des 3098 points ; respecte la Bible (G5, G8) | ✅ |
+| D3 | Palette par `statut_qualite` en mode Fichier | Cohérent avec la sémantique (brut = qualité) | ✅ |
+| D4 | Pas de dédoublonnage à l'ingestion | Contredit la Bible (G5, G8) ; préférer le diff entre runs (V2) | ✅ |
+| D5 | Lignes `rejete` non stockées | Conforme à la Bible § 3.1.6 ; V2 pour les stocker | ✅ |
 
-### 4.2 Décisions backend (rappel)
+### 4.2 Décisions backend
 
-| # | Décision | Référence |
-|---|----------|-----------|
-| D6 | `message_qualite` à ajouter dans `LigneIngeree` (schéma) | Nécessaire pour `Qualite.tsx` |
-| D7 | 6 statuts de qualité | Bible § 3.1.6 |
-| D8 | Dédoublonnage 3 niveaux | Bible § 3.2.3 |
+| # | Décision | Référence | Statut |
+|---|----------|-----------|--------|
+| D6 | `message_qualite` à ajouter dans `LigneIngeree` (schéma) | Nécessaire pour `Qualite.tsx` | ⏳ |
+| D7 | 6 statuts de qualité | Bible § 3.1.6 | ✅ |
+| D8 | Dédoublonnage 3 niveaux | Bible § 3.2.3 | ✅ |
+| **D9** | **`GET /ouvrages` expose `region`/`departement`/`sous_prefecture`** | **Nécessaire pour `Liste.tsx`** | ⏳ |
+| **D10** | **`Liste.tsx` affiche 4 niveaux géo (région → département → sous-préfecture → localité)** | **Demande client** | ⏳ |
+
+### 4.3 Décisions Bible (mises à jour)
+
+| Section | Modification | Statut |
+|---------|--------------|--------|
+| **5.4.4** | `Liste.tsx` : colonnes géo (4 niveaux) + `exportOuvrages` | ✅ |
+| **4.3.4** | `GET /ouvrages` expose `region`/`departement`/`sous_prefecture` | ✅ |
+| **7.1** | Ajout de l'écart **B8** | ✅ |
+| **7.4** | Retrait de A17 (c'est un écart, pas une contrainte) | ✅ |
 
 ---
 
 ## 5. Prochaines étapes (par ordre)
 
-### 5.1 Immédiat (frontend)
+### 5.1 Immédiat (backend — débloque le frontend)
 
-1. **`Carte.tsx`** : sélecteur `id_run` en mode Fichier (D2).
-2. **`MapView.tsx`** : palette conditionnelle `mode` (D3).
-3. **`Qualite.tsx`** : vérifier l'affichage de `message_qualite` (D6).
-4. **`Fichiers.tsx`**, **`Mapping.tsx`**, **`UploadDialog.tsx`**, **`RunStatus.tsx`**, **`Parametres.tsx`**, **`App.tsx`** : audit + correction.
+1. **`schemas/ouvrages.py`** : ajouter `region`, `departement`, `sous_prefecture` à `Ouvrage` (B8, D9).
+2. **`routers/ouvrages.py`** : joindre `ref_geo_admin` (4 niveaux) dans `list_ouvrages` et `get_ouvrage`.
+3. **`schemas/ingestion.py`** : ajouter `message_qualite: str | None` à `LigneIngeree` (D6).
 
-### 5.2 Court terme (backend)
+### 5.2 Immédiat (frontend — après backend)
 
-5. **`schemas/ingestion.py`** : ajouter `message_qualite: str | None` à `LigneIngeree`.
+4. **`Liste.tsx`** : ajouter les 3 colonnes géo dans le tableau (F7, D10).
+5. **`Qualite.tsx`** : vérifier l'affichage de `message_qualite`.
 
-### 5.3 V2 (documenté)
+### 5.3 Audit frontend (fichiers restants)
 
-6. **Stocker les lignes `rejete`** (Bible § 3.1.6, exception V2).
-7. **Endpoint `/runs/{id}/diff/{id_autre}`** (comparer deux runs).
-8. **UI de gestion des versions** (Bible § 2.3.5, G5).
+6. **`Fichiers.tsx`**
+7. **`Mapping.tsx`**
+8. **`UploadDialog.tsx`**
+9. **`RunStatus.tsx`**
+10. **`Parametres.tsx`**
+11. **`App.tsx`**
+
+### 5.4 Nettoyage (bas priorité)
+
+12. **`F4`** : supprimer `OLD_Carte.tsx`.
+13. **`F6`** : Skeletons.
+14. **`F9`** : bouton « Supprimer le JWT » dans `Parametres.tsx`.
+
+### 5.5 V2 (documenté)
+
+15. **Stocker les lignes `rejete`** (Bible § 3.1.6, exception V2).
+16. **Endpoint `/runs/{id}/diff/{id_autre}`** (comparer deux runs).
+17. **UI de gestion des versions** (Bible § 2.3.5, G5).
 
 ---
 
@@ -191,17 +221,13 @@ docker compose logs -f frontend
 
 ## 7. Points d'attention
 
-### 7.1 Mode Fichier — 3098 points
+### 7.1 Mode Fichier — points multiples (résolu)
 
-**Cause** : 3 runs × 1306 lignes = 3918 (ou 3098 si certains runs ont moins de lignes). La vue `v_points_par_fichier` retourne toutes les lignes.
+**Solution implémentée** : sélecteur `id_run` dans `Carte.tsx` (D2). « Tous les runs » par défaut, ou un run spécifique.
 
-**Solution** : sélecteur `id_run` dans `Carte.tsx` (D2). **Pas de modification backend nécessaire** (`carto.py` accepte déjà `?id_run=X`).
+### 7.2 Points gris en mode Fichier (résolu)
 
-### 7.2 Points gris en mode Fichier
-
-**Cause** : `type_alimentation` n'existe pas en mode Fichier (brut, pas consolidé).
-
-**Solution** : palette par `statut_qualite` (D3).
+**Solution implémentée** : palette par `statut_qualite` (D3). Vert = ok, orange = localite_non_resolue, rouge = geom_invalide, violet = type_ouvrage_inconnu, jaune = doublon_suspect.
 
 ### 7.3 Lignes rejetées
 
@@ -213,7 +239,13 @@ docker compose logs -f frontend
 
 **Comportement** : absent du schéma Pydantic `LigneIngeree`. Le frontend reçoit `undefined`.
 
-**Solution** : ajouter `message_qualite: str | None` dans `schemas/ingestion.py` (D6).
+**Solution** : ajouter `message_qualite: str | None` dans `schemas/ingestion.py` (D6). **À faire en priorité** (débloque `Qualite.tsx`).
+
+### 7.5 `GET /ouvrages` sans géo (nouveau)
+
+**Comportement** : `Ouvrage` (schéma) n'expose pas `region`/`departement`/`sous_prefecture`. `Liste.tsx` ne peut pas les afficher.
+
+**Solution** : ajouter les 3 champs (B8, D9). Joindre `ref_geo_admin` (4 niveaux) dans `list_ouvrages` et `get_ouvrage`. **À faire en priorité** (débloque `Liste.tsx`).
 
 ---
 
@@ -221,11 +253,11 @@ docker compose logs -f frontend
 
 | Document | Rôle | Statut |
 |----------|------|--------|
-| `DHR.md` | Bible (fait autorité) | ✅ v1.0 |
+| `DHR.md` | Bible (fait autorité) | ✅ v1.0 (mise à jour 5.4.4, 4.3.4, 7.1, 7.4) |
 | `CONSTITUTION.md` | Contrat opérationnel | ✅ v1.0 |
 | `openapi.yaml` | Contrat API | ✅ v1.3.0 |
 | `metadata_conventions.md` | Conventions metadata | ⏳ À réécrire (M1–M6) |
-| `HANDOFF.md` | Ce document | ✅ v1.2 |
+| `HANDOFF.md` | Ce document | ✅ v1.3 |
 
 ---
 
@@ -233,17 +265,19 @@ docker compose logs -f frontend
 
 > « Je reprends le projet DHR. Backend 100 % validé (54 tests, Ruff OK). Frontend en cours de validation.
 >
-> **Fichiers validés** : `api.ts`, `vite.config.ts`, `lib/filters.ts`, `FiltersPanel.tsx`, `Liste.tsx`.
+> **Fichiers validés** : `api.ts`, `vite.config.ts`, `lib/filters.ts`, `FiltersPanel.tsx`, `Liste.tsx`, `Carte.tsx`, `MapView.tsx`.
 >
-> **Fichiers à corriger** :
-> - `Carte.tsx` : ajouter sélecteur `id_run` (mode Fichier).
-> - `MapView.tsx` : palette conditionnelle (qualité en mode Fichier).
-> - `Qualite.tsx` : vérifier `message_qualite`.
-> - `Fichiers.tsx`, `Mapping.tsx`, `UploadDialog.tsx`, `RunStatus.tsx`, `Parametres.tsx`, `App.tsx` : audit.
+> **Backend à corriger (priorité)** :
+> 1. `schemas/ouvrages.py` + `routers/ouvrages.py` : exposer `region`/`departement`/`sous_prefecture` dans `GET /ouvrages` (B8, D9).
+> 2. `schemas/ingestion.py` : ajouter `message_qualite` à `LigneIngeree` (D6).
 >
-> **Backend à corriger** : ajouter `message_qualite` dans `schemas/ingestion.py`.
+> **Frontend à corriger (priorité)** :
+> 3. `Liste.tsx` : ajouter les 3 colonnes géo (F7, D10).
+> 4. `Qualite.tsx` : vérifier `message_qualite`.
 >
-> On commence par `Carte.tsx` (sélecteur `id_run`). »
+> **Fichiers à auditer** : `Fichiers.tsx`, `Mapping.tsx`, `UploadDialog.tsx`, `RunStatus.tsx`, `Parametres.tsx`, `App.tsx`.
+>
+> On commence par le backend (B8 + D6), puis `Liste.tsx` + `Qualite.tsx`. »
 
 ---
 
@@ -255,8 +289,8 @@ docker compose logs -f frontend
 | `frontend/src/lib/filters.ts` | **Nouveau** (`Filters`, `EMPTY_FILTERS`) |
 | `frontend/src/components/FiltersPanel.tsx` | Imports corrigés, reset, cascade |
 | `frontend/src/pages/Liste.tsx` | Imports corrigés |
-| `frontend/src/pages/Carte.tsx` | Imports corrigés, filtres mode Fichier |
-| `frontend/src/components/MapView.tsx` | Formes, `qualite_eau` popup |
+| `frontend/src/pages/Carte.tsx` | Imports corrigés, sélecteur `id_run`, légende conditionnelle, `mode` |
+| `frontend/src/components/MapView.tsx` | Formes, `qualite_eau` popup, palette conditionnelle (`mode`) |
 | `frontend/src/pages/Qualite.tsx` | Réécrit (JSX corrigé) |
 | `backend/app/services/export.py` | Réindenté |
 | `backend/app/main.py` | RFC 7807 + lifespan |
@@ -266,11 +300,7 @@ docker compose logs -f frontend
 | `backend/app/routers/fichiers.py` | B6, sans PEP 563 |
 | `backend/app/schemas/fichiers.py` | B7 (`MappingValidation`) |
 | `openapi.yaml` | v1.3.0 (indentation, préfixes, schémas) |
+| `DHR.md` | Mise à jour 5.4.4, 4.3.4, 7.1, 7.4 |
 
 ---
-
-**Fin du handoff v1.2.** Ce document capture l'état au **16 novembre 2026**. En cas de conflit, **la Bible fait autorité**.
-
----
-
 

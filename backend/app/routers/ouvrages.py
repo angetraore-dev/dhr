@@ -76,6 +76,9 @@ def _build_ouvrage_schema(
     o: Ouvrage,
     include_metadata: bool,
     geojson_str: str | None = None,
+    region: str | None = None,
+    departement: str | None = None,
+    sous_prefecture: str | None = None,
 ) -> OuvrageSchema:
     localite = LocaliteResume(
         id_localite=o.localite.id_localite,
@@ -109,6 +112,9 @@ def _build_ouvrage_schema(
         realisation_par=o.realisation_par,
         etat=o.etat,
         annee_realisation=o.annee_realisation,
+        region=region,
+        departement=departement,
+        sous_prefecture=sous_prefecture,
         localite=localite,
         geom=geom,
         cgpe=cgpe_summary,
@@ -118,22 +124,20 @@ def _build_ouvrage_schema(
     )
 
 
-def _apply_geo_filters(stmt, filters: OuvrageFilters):
-    """Applique les filtres géographiques (region, departement, sous_prefecture, localite)."""
-    if not (filters.region or filters.departement or filters.sous_prefecture or filters.localite):
-        return stmt
-
-    stmt = stmt.join(Ouvrage.localite)
-
+def _apply_geo_joins_and_filters(stmt, filters: OuvrageFilters):
+    """Applique les jointures géographiques et les filtres (region, departement, sous_prefecture, localite)."""
     rg_loc = RefGeoAdmin.__table__.alias("rg_loc")
     rg_sp = RefGeoAdmin.__table__.alias("rg_sp")
     rg_dep = RefGeoAdmin.__table__.alias("rg_dep")
     rg_reg = RefGeoAdmin.__table__.alias("rg_reg")
 
-    stmt = stmt.join(rg_loc, Localite.id_geo == rg_loc.c.id_geo)
-    stmt = stmt.outerjoin(rg_sp, rg_loc.c.parent_id == rg_sp.c.id_geo)
-    stmt = stmt.outerjoin(rg_dep, rg_sp.c.parent_id == rg_dep.c.id_geo)
-    stmt = stmt.outerjoin(rg_reg, rg_dep.c.parent_id == rg_reg.c.id_geo)
+    stmt = (
+        stmt.join(Ouvrage.localite)
+        .join(rg_loc, Localite.id_geo == rg_loc.c.id_geo)
+        .outerjoin(rg_sp, rg_loc.c.parent_id == rg_sp.c.id_geo)
+        .outerjoin(rg_dep, rg_sp.c.parent_id == rg_dep.c.id_geo)
+        .outerjoin(rg_reg, rg_dep.c.parent_id == rg_reg.c.id_geo)
+    )
 
     if filters.region:
         stmt = stmt.where(rg_reg.c.nom == filters.region)
@@ -146,7 +150,7 @@ def _apply_geo_filters(stmt, filters: OuvrageFilters):
             func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{filters.localite}%"))
         )
 
-    return stmt
+    return stmt, rg_reg, rg_dep, rg_sp
 
 
 def _apply_bailleur_filter(stmt, filters: OuvrageFilters):
@@ -176,18 +180,24 @@ def list_ouvrages(
     include: Literal["metadata"] | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    stmt = (
-        select(
-            Ouvrage,
-            func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
-        )
-        .options(
-            selectinload(Ouvrage.localite),
-            selectinload(Ouvrage.cgpes),
-            selectinload(Ouvrage.financements)
-            .selectinload(OuvrageProjet.projet)
-            .selectinload(ProjetFinancement.financeur),
-        )
+    stmt = select(
+        Ouvrage,
+        func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
+    )
+
+    # Application des jointures géographiques et récupération des 3 niveaux
+    stmt, rg_reg, rg_dep, rg_sp = _apply_geo_joins_and_filters(stmt, filters)
+
+    stmt = stmt.add_columns(
+        rg_reg.c.nom.label("region_nom"),
+        rg_dep.c.nom.label("departement_nom"),
+        rg_sp.c.nom.label("sous_prefecture_nom"),
+    ).options(
+        selectinload(Ouvrage.localite),
+        selectinload(Ouvrage.cgpes),
+        selectinload(Ouvrage.financements)
+        .selectinload(OuvrageProjet.projet)
+        .selectinload(ProjetFinancement.financeur),
     )
 
     if filters.type_alimentation:
@@ -203,7 +213,6 @@ def list_ouvrages(
     if filters.annee_max is not None:
         stmt = stmt.where(Ouvrage.annee_realisation <= filters.annee_max)
 
-    stmt = _apply_geo_filters(stmt, filters)
     stmt = _apply_bailleur_filter(stmt, filters)
 
     if pagination.cursor:
@@ -221,7 +230,14 @@ def list_ouvrages(
     include_metadata = include == "metadata"
 
     data = [
-        _build_ouvrage_schema(row[0], include_metadata, row[1])
+        _build_ouvrage_schema(
+            o=row[0],
+            include_metadata=include_metadata,
+            geojson_str=row[1],
+            region=row[2],
+            departement=row[3],
+            sous_prefecture=row[4],
+        )
         for row in rows
     ]
 
@@ -295,11 +311,24 @@ def get_ouvrage(
     include: Literal["metadata"] | None = Query(None),
     db: Session = Depends(get_db),
 ):
+    rg_loc = RefGeoAdmin.__table__.alias("rg_loc")
+    rg_sp = RefGeoAdmin.__table__.alias("rg_sp")
+    rg_dep = RefGeoAdmin.__table__.alias("rg_dep")
+    rg_reg = RefGeoAdmin.__table__.alias("rg_reg")
+
     stmt = (
         select(
             Ouvrage,
             func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
+            rg_reg.c.nom.label("region_nom"),
+            rg_dep.c.nom.label("departement_nom"),
+            rg_sp.c.nom.label("sous_prefecture_nom"),
         )
+        .join(Ouvrage.localite)
+        .join(rg_loc, Localite.id_geo == rg_loc.c.id_geo)
+        .outerjoin(rg_sp, rg_loc.c.parent_id == rg_sp.c.id_geo)
+        .outerjoin(rg_dep, rg_sp.c.parent_id == rg_dep.c.id_geo)
+        .outerjoin(rg_reg, rg_dep.c.parent_id == rg_reg.c.id_geo)
         .where(Ouvrage.id_ouvrage == id)
         .options(
             selectinload(Ouvrage.localite),
@@ -315,7 +344,14 @@ def get_ouvrage(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Ouvrage {id} introuvable",
         )
-    return _build_ouvrage_schema(row[0], include == "metadata", row[1])
+    return _build_ouvrage_schema(
+        o=row[0],
+        include_metadata=include == "metadata",
+        geojson_str=row[1],
+        region=row[2],
+        departement=row[3],
+        sous_prefecture=row[4],
+    )
 
 
 # =====================================================================

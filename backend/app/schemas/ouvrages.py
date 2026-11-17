@@ -46,6 +46,9 @@ class Ouvrage(BaseModel):
     realisation_par: RealisationPar | None = None
     etat: EtatOuvrage
     annee_realisation: int | None = None
+    region: str | None = None
+    departement: str | None=None
+    sous_prefecture: str | None=None
     localite: LocaliteResume
     geom: GeoJSONPoint | None = None
     cgpe: CGPESummary | None = None
