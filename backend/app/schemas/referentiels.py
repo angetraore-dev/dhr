@@ -51,6 +51,10 @@ class LocaliteResume(BaseModel):
 
     id_localite: int
     nom_usage: str
+    region: str | None = None
+    departement: str | None = None
+    sous_prefecture: str | None = None
+
 
 
 class Localite(LocaliteResume):

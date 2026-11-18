@@ -3,14 +3,16 @@ import L from 'leaflet'
 import type { FeatureCollection } from '@/lib/api'
 
 export type MapMode = 'tous' | 'fichier'
+export type SousMode = 'brut' | 'ouvrages'
 
 interface Props {
     data: FeatureCollection | null
     height?: string
     mode?: MapMode
+    sousMode?: SousMode
 }
 
-// Palette mode Tous (couleur = alimentation)
+// Palette mode Tous / Fichier+ouvrages (couleur = alimentation)
 const TYPE_COLORS: Record<string, string> = {
     PMH: '#2563eb', // bleu
     HVA: '#16a34a', // vert
@@ -19,7 +21,7 @@ const TYPE_COLORS: Record<string, string> = {
     AUTRE: '#6b7280', // gris
 }
 
-// Palette mode Fichier (couleur = qualité)
+// Palette mode Fichier+brut (couleur = qualité)
 const QUALITE_COLORS: Record<string, string> = {
     ok: '#16a34a', // vert
     localite_non_resolue: '#f59e0b', // ambre
@@ -29,8 +31,16 @@ const QUALITE_COLORS: Record<string, string> = {
     rejete: '#6b7280', // gris (jamais affiché, mais sécurité)
 }
 
-function getColor(mode: MapMode, props: Record<string, unknown>): string {
-    if (mode === 'fichier') {
+function isBrutMode(mode: MapMode, sousMode: SousMode): boolean {
+    return mode === 'fichier' && sousMode === 'brut'
+}
+
+function getColor(
+    mode: MapMode,
+    sousMode: SousMode,
+    props: Record<string, unknown>,
+): string {
+    if (isBrutMode(mode, sousMode)) {
         const statut = props.statut_qualite as string | undefined
         return QUALITE_COLORS[statut || ''] || '#6b7280'
     }
@@ -78,11 +88,12 @@ function _renderDetails(
 function buildPopupHtml(
     p: Record<string, unknown>,
     mode: MapMode,
+    sousMode: SousMode,
 ): string {
     const mainLines: string[] = []
 
-    if (mode === 'fichier') {
-        // Mode Fichier : on affiche le brut + le statut qualité
+    if (isBrutMode(mode, sousMode)) {
+        // Mode Fichier + brut : on affiche le brut + le statut qualité
         if (p.statut_qualite)
             mainLines.push(`<b>${_escape(p.statut_qualite)}</b>`)
         if (p.nom_feuille) mainLines.push(`Feuille : ${_escape(p.nom_feuille)}`)
@@ -95,7 +106,7 @@ function buildPopupHtml(
         if (p.bailleur_brut)
             mainLines.push(`Bailleur brut : ${_escape(p.bailleur_brut)}`)
     } else {
-        // Mode Tous : métier consolidé
+        // Mode Tous OU Fichier+ouvrages : métier consolidé
         if (p.type_alimentation)
             mainLines.push(`<b>${_escape(p.type_alimentation)}</b>`)
         if (p.nature_ouvrage)
@@ -111,12 +122,16 @@ function buildPopupHtml(
 
     let html = mainLines.join('<br/>')
 
-    // Détails metadata (mode Tous)
-    if (mode === 'tous') {
-        html += _renderDetails(
-            'Détails',
-            p.metadata as Record<string, unknown> | undefined,
-        )
+    // Détails metadata (mode Tous OU Fichier+ouvrages)
+    if (!isBrutMode(mode, sousMode)) {
+        const details = p.details as
+            | Record<string, Record<string, unknown>>
+            | undefined
+        if (details) {
+            html += _renderDetails('Donnée Ouvrage', details.ouvrage)
+            html += _renderDetails('Donnée Localité', details.localite)
+            html += _renderDetails('Info CGPE', details.cgpe)
+        }
         html += _renderDetails(
             "Qualité de l'eau",
             p.qualite_eau as Record<string, unknown> | undefined,
@@ -126,16 +141,23 @@ function buildPopupHtml(
     return html
 }
 
-export function MapView({ data, height = '600px', mode = 'tous' }: Props) {
+export function MapView({
+                            data,
+                            height = '600px',
+                            mode = 'tous',
+                            sousMode = 'brut',
+                        }: Props) {
     const containerRef = useRef<HTMLDivElement>(null)
     const mapRef = useRef<L.Map | null>(null)
     const layerRef = useRef<L.GeoJSON | null>(null)
     const modeRef = useRef<MapMode>(mode)
+    const sousModeRef = useRef<SousMode>(sousMode)
 
-    // Re-créer la couche quand le mode change (palette différente)
+    // Mise à jour des refs quand les props changent
     useEffect(() => {
         modeRef.current = mode
-    }, [mode])
+        sousModeRef.current = sousMode
+    }, [mode, sousMode])
 
     useEffect(() => {
         if (!containerRef.current || mapRef.current) return
@@ -165,11 +187,18 @@ export function MapView({ data, height = '600px', mode = 'tous' }: Props) {
 
         layerRef.current = L.geoJSON(undefined, {
             pointToLayer: (feature, latlng) => {
-                const props = (feature.properties || {}) as Record<string, unknown>
-                const color = getColor(modeRef.current, props)
+                const props = (feature.properties || {}) as Record<
+                    string,
+                    unknown
+                >
+                const color = getColor(
+                    modeRef.current,
+                    sousModeRef.current,
+                    props,
+                )
 
-                // En mode Fichier : tout en cercle (pas de nature en brut)
-                if (modeRef.current === 'fichier') {
+                // Mode Fichier + brut : tout en cercle
+                if (isBrutMode(modeRef.current, sousModeRef.current)) {
                     return L.circleMarker(latlng, {
                         radius: 6,
                         fillColor: color,
@@ -180,7 +209,7 @@ export function MapView({ data, height = '600px', mode = 'tous' }: Props) {
                     })
                 }
 
-                // En mode Tous : formes selon la nature
+                // Mode Tous OU Fichier+ouvrages : formes selon la nature
                 const nature = props.nature_ouvrage
 
                 if (nature === 'puits') {
@@ -217,9 +246,14 @@ export function MapView({ data, height = '600px', mode = 'tous' }: Props) {
             },
             onEachFeature: (feature, layer) => {
                 const p = (feature.properties || {}) as Record<string, unknown>
-                layer.bindPopup(buildPopupHtml(p, modeRef.current), {
-                    maxWidth: 320,
-                })
+                layer.bindPopup(
+                    buildPopupHtml(
+                        p,
+                        modeRef.current,
+                        sousModeRef.current,
+                    ),
+                    { maxWidth: 320 },
+                )
             },
         }).addTo(map)
 
@@ -240,13 +274,13 @@ export function MapView({ data, height = '600px', mode = 'tous' }: Props) {
         }
     }, [data])
 
-    // Mise à jour du mode : on force un re-render des couches
+    // Mise à jour du mode / sous-mode : on force un re-render des couches
     useEffect(() => {
         if (!layerRef.current || !data) return
 
         layerRef.current.clearLayers()
         layerRef.current.addData(data as never)
-    }, [mode, data])
+    }, [mode, sousMode, data])
 
     return (
         <div

@@ -15,7 +15,7 @@ interface GeoOption {
 }
 
 export function FiltersPanel({ filters, onChange, showGeographic = true }: Props) {
-    const [localites, setLocalites] = useState<{ id: number; nom: string }[]>([])
+    const [localites, setLocalites] = useState<{ id: number; nom: string, sous_prefecture: string }[]>([])
     const [regions, setRegions] = useState<GeoOption[]>([])
     const [departements, setDepartements] = useState<GeoOption[]>([])
     const [sousPrefectures, setSousPrefectures] = useState<GeoOption[]>([])
@@ -69,6 +69,7 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
                             res.data.map((l) => ({
                                 id: l.id_localite,
                                 nom: l.nom_usage,
+                                sous_prefecture: l.sous_prefecture,
                             })),
                         )
                     })
@@ -269,7 +270,7 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
                                             }}
                                             className="px-2 py-1 text-sm hover:bg-gray-100 cursor-pointer"
                                         >
-                                            {l.nom}
+                                            {l.nom} ({l.sous_prefecture})
                                         </li>
                                     ))}
                                 </ul>

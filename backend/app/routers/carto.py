@@ -25,6 +25,8 @@ from app.deps import (
 )
 from app.models import (
     Fichier,
+    Feuille,
+    LigneIngeree,
     Localite,
     Ouvrage,
     OuvrageProjet,
@@ -341,6 +343,58 @@ def _build_feature_collection_tous(
         "meta": {"count": len(features)},
     }
 
+# =====================================================================
+#
+# =====================================================================
+def _build_feature_collection_ouvrages_fichier(
+    id_fichier: int,
+    db: Session,
+) -> dict[str, Any]:
+    """Ouvrages consolidés d'un fichier (via ligne_ingeree.id_ouvrage_consolide).
+
+    Un ouvrage peut être lié à plusieurs lignes du même fichier (dédoublonnage).
+    On utilise DISTINCT ON pour ne retourner chaque ouvrage qu'une fois.
+    """
+    fichier = db.get(Fichier, id_fichier)
+    if fichier is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Fichier {id_fichier} introuvable",
+        )
+
+    # Sous-requête : ids d'ouvrages liés au fichier
+    stmt = (
+        select(
+            Ouvrage,
+            func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
+        )
+        .join(
+            LigneIngeree,
+            LigneIngeree.id_ouvrage_consolide == Ouvrage.id_ouvrage,
+        )
+        .join(Feuille, Feuille.id_feuille == LigneIngeree.id_feuille)
+        .where(Feuille.id_fichier == id_fichier)
+        .where(Ouvrage.id_ouvrage.isnot(None))
+        .distinct(Ouvrage.id_ouvrage)
+        .order_by(Ouvrage.id_ouvrage)
+        .options(
+            selectinload(Ouvrage.localite),
+            selectinload(Ouvrage.cgpes),
+        )
+    )
+
+    rows = db.execute(stmt).all()
+    features = [f for f in (_row_to_feature_ouvrage(r) for r in rows) if f]
+
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+        "meta": {
+            "id_fichier": id_fichier,
+            "nom_fichier": fichier.nom_fichier_original,
+            "count": len(features),
+        },
+    }
 
 # =====================================================================
 # ROUTES
@@ -425,3 +479,22 @@ def telecharger_geojson_fichier(
             "Content-Disposition": f'attachment; filename="fichier_{id_fichier}.geojson"'
         },
     )
+
+
+@router.get(
+    "/carto/fichiers/{id_fichier}/ouvrages",
+    summary="Ouvrages consolidés d'un fichier (GeoJSON)",
+    operation_id="get_ouvrages_fichier",
+)
+def ouvrages_fichier(
+    id_fichier: int,
+    db: Session = Depends(get_db),
+):
+    """Ouvrages consolidés issus de ce fichier (via ligne_ingeree.id_ouvrage_consolide).
+
+    Contrairement à `/points` (qui expose les lignes brutes), cet endpoint
+    expose les ouvrages consolidés (métier), avec les mêmes `properties`
+    que le mode Tous (`/carto/tous/points`).
+    """
+    return _build_feature_collection_ouvrages_fichier(id_fichier, db)
+

@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Map as MapIcon, Layers } from 'lucide-react'
+import { Map as MapIcon, Layers, FileSpreadsheet, Boxes } from 'lucide-react'
 import { api, type FeatureCollection } from '@/lib/api'
 import { MapView, type MapMode } from '@/components/MapView'
 import { Button } from '@/components/ui/button'
 import { FiltersPanel } from '@/components/FiltersPanel'
 import { EMPTY_FILTERS, type Filters } from '@/lib/filters'
 
+type SousMode = 'brut' | 'ouvrages'
+
 export default function Carte() {
     const [mode, setMode] = useState<MapMode>('tous')
+    const [sousMode, setSousMode] = useState<SousMode>('brut')
     const [idFichier, setIdFichier] = useState<number | null>(null)
     const [idFeuille, setIdFeuille] = useState<number | null>(null)
     const [idRun, setIdRun] = useState<number | null>(null)
@@ -28,7 +31,7 @@ export default function Carte() {
     const { data: runsData } = useQuery({
         queryKey: ['runs', idFichier],
         queryFn: () => api.runsFichier(idFichier!),
-        enabled: !! idFichier,
+        enabled: idFichier !== null,
     })
 
     // Reset feuille + run quand le fichier change
@@ -38,9 +41,17 @@ export default function Carte() {
     }, [idFichier])
 
     const { data: cartoData, isLoading } = useQuery<FeatureCollection>({
-        queryKey: ['carto', mode, idFichier, idFeuille, idRun, filters],
+        queryKey: [
+            'carto',
+            mode,
+            sousMode,
+            idFichier,
+            idFeuille,
+            idRun,
+            filters,
+        ],
         queryFn: () => {
-            // Mode Tous : tous les filtres supportés
+            // ----- Mode Tous -----
             if (mode === 'tous') {
                 const params: Record<string, string | number> = {}
                 for (const [k, v] of Object.entries(filters)) {
@@ -49,7 +60,7 @@ export default function Carte() {
                 return api.cartoTous(params)
             }
 
-            // Mode Fichier : sous-ensemble de filtres
+            // ----- Mode Fichier -----
             if (idFichier === null) {
                 return Promise.resolve({
                     type: 'FeatureCollection' as const,
@@ -57,6 +68,13 @@ export default function Carte() {
                     meta: { count: 0 },
                 })
             }
+
+            // Sous-mode « Ouvrages consolidés » : pas de filtres, pas de run/feuille
+            if (sousMode === 'ouvrages') {
+                return api.cartoFichiersOuvrages(idFichier)
+            }
+
+            // Sous-mode « Lignes brutes » : filtres supportés par /points
             const fichierParams: Record<string, string | number> = {}
             if (filters.type_alimentation)
                 fichierParams.type_alimentation = filters.type_alimentation
@@ -76,8 +94,12 @@ export default function Carte() {
     const pointCount = cartoData?.features.length ?? 0
     const hasRuns = (runsData?.data.length ?? 0) > 0
 
+    // En sous-mode « Ouvrages », les filtres géo/métier ne s'appliquent pas
+    const showFilters = mode === 'tous' || sousMode === 'brut'
+
     return (
         <div className="space-y-4">
+            {/* En-tête + toggles mode */}
             <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900">Carte</h2>
@@ -118,6 +140,27 @@ export default function Carte() {
             {/* Sélecteurs (mode Fichier uniquement) */}
             {mode === 'fichier' && (
                 <div className="flex gap-3 items-center flex-wrap bg-gray-50 p-3 rounded-lg border">
+                    {/* Toggle sous-mode */}
+                    <div className="flex items-center gap-1 border-r pr-3">
+                        <Button
+                            variant={sousMode === 'brut' ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setSousMode('brut')}
+                        >
+                            <FileSpreadsheet className="w-4 h-4 mr-1" />
+                            Lignes brutes
+                        </Button>
+                        <Button
+                            variant={sousMode === 'ouvrages' ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setSousMode('ouvrages')}
+                        >
+                            <Boxes className="w-4 h-4 mr-1" />
+                            Ouvrages consolidés
+                        </Button>
+                    </div>
+
+                    {/* Sélecteur fichier (toujours visible) */}
                     <select
                         value={idFichier ?? ''}
                         onChange={(e) =>
@@ -135,7 +178,8 @@ export default function Carte() {
                         ))}
                     </select>
 
-                    {idFichier !== null && feuilles && feuilles.data.length > 0 && (
+                    {/* Sélecteurs feuille + run : uniquement en sous-mode « brut » */}
+                    {sousMode === 'brut' && idFichier !== null && feuilles && feuilles.data.length > 0 && (
                         <select
                             value={idFeuille ?? ''}
                             onChange={(e) =>
@@ -156,7 +200,7 @@ export default function Carte() {
                         </select>
                     )}
 
-                    {idFichier !== null && hasRuns && (
+                    {sousMode === 'brut' && idFichier !== null && hasRuns && (
                         <select
                             value={idRun ?? ''}
                             onChange={(e) =>
@@ -173,8 +217,8 @@ export default function Carte() {
                             </option>
                             {runsData!.data.map((r) => (
                                 <option key={r.id_run} value={r.id_run}>
-                                    Run #{r.id_run} — {r.statut} ({r.nb_lignes_ingerees}{' '}
-                                    lignes)
+                                    Run #{r.id_run} — {r.statut} (
+                                    {r.nb_lignes_ingerees} lignes)
                                 </option>
                             ))}
                         </select>
@@ -182,31 +226,50 @@ export default function Carte() {
                 </div>
             )}
 
-            {/* Message si fichier sans run */}
-            {mode === 'fichier' && idFichier !== null && !hasRuns && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                    Ce fichier n'a pas encore été ingéré. Lancez un run depuis la
-                    page « Fichiers » pour voir ses points sur la carte.
-                </div>
-            )}
+            {/* Message si fichier sans run (seulement en sous-mode « brut ») */}
+            {mode === 'fichier' &&
+                sousMode === 'brut' &&
+                idFichier !== null &&
+                !hasRuns && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                        Ce fichier n'a pas encore été ingéré. Lancez un run depuis
+                        la page « Fichiers » pour voir ses points sur la carte.
+                    </div>
+                )}
 
-            {/* Filtres */}
-            <FiltersPanel
-                filters={filters}
-                onChange={setFilters}
-                showGeographic={true}
-            />
+            {/* Message si fichier sans ouvrages (sous-mode « ouvrages ») */}
+            {mode === 'fichier' &&
+                sousMode === 'ouvrages' &&
+                idFichier !== null &&
+                !isLoading &&
+                pointCount === 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                        Aucun ouvrage consolidé pour ce fichier. Vérifiez que le
+                        pipeline (ingestion → rapprochement → consolidation) a bien
+                        été exécuté.
+                    </div>
+                )}
+
+            {/* Filtres : visibles en mode Tous, ou en mode Fichier + brut */}
+            {showFilters && (
+                <FiltersPanel
+                    filters={filters}
+                    onChange={setFilters}
+                    showGeographic={true}
+                />
+            )}
 
             <MapView
                 data={cartoData ?? null}
                 height="calc(100vh - 380px)"
                 mode={mode}
+                sousMode={sousMode}
             />
 
             {/* Légende conditionnelle */}
             <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap">
                 <span className="font-medium">Légende :</span>
-                {mode === 'tous' ? (
+                {mode === 'tous' || sousMode === 'ouvrages' ? (
                     <>
                         <span className="text-xs text-gray-500 mr-2">
                             Couleur = Alimentation, forme = Nature

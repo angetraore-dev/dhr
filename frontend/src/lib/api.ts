@@ -461,6 +461,11 @@ export const api = {
             `/carto/fichiers/${idFichier}/points${toQuery(params)}`,
         ),
 
+    // ----- Carto Ouvrages Consolides par Fichier Specifique ----
+    cartoFichiersOuvrages: (idFichier: number) =>
+        request<FeatureCollection>(`/carto/fichiers/${idFichier}/ouvrages`),
+
+    // ---- Carto Points Geojson des fichiers consolides ----
     cartoTous: (params?: OuvrageFilters & { include?: string }) =>
         request<FeatureCollection>(`/carto/tous/points${toQuery(params)}`),
 

@@ -826,6 +826,34 @@ paths:
                 '401': { $ref: '#/components/responses/Unauthorized' }
                 '404': { $ref: '#/components/responses/NotFound' }
 
+    /v1/carto/fichiers/{id_fichier}/ouvrages:
+        get:
+            tags: [Carto]
+            summary: Ouvrages consolidés d'un fichier (GeoJSON)
+            description: |
+                Retourne les ouvrages consolidés issus de ce fichier
+                (via `ligne_ingeree.id_ouvrage_consolide`).
+
+                Contrairement à `/points` (qui expose les lignes brutes),
+                cet endpoint expose les ouvrages consolidés (métier), avec
+                les mêmes `properties` que le mode Tous (`/carto/tous/points`).
+
+                Aucun filtre n'est accepté : retourne tous les ouvrages du fichier.
+            parameters:
+                - name: id_fichier
+                  in: path
+                  required: true
+                  schema: { type: integer, format: int64 }
+            responses:
+                '200':
+                    description: FeatureCollection GeoJSON
+                    content:
+                        application/geo+json:
+                            schema: { $ref: '#/components/schemas/FeatureCollectionPoints' }
+                '401': { $ref: '#/components/responses/Unauthorized' }
+                '404': { $ref: '#/components/responses/NotFound' }
+
+
     /v1/carto/tous/points:
         get:
             tags: [Carto]
@@ -1066,10 +1094,13 @@ components:
 
         LocaliteResume:
             type: object
-            required: [id_localite, nom_usage]
+            required: [ id_localite, nom_usage ]
             properties:
                 id_localite: { type: integer }
                 nom_usage: { type: string }
+                region: { type: string, nullable: true }
+                departement: { type: string, nullable: true }
+                sous_prefecture: { type: string, nullable: true }
 
         Localite:
             allOf:
@@ -1254,6 +1285,9 @@ components:
                     type: string
                     enum: [fonctionnel, en_panne, abandonne, inconnu]
                 annee_realisation: { type: integer, nullable: true }
+                region: { type: string, nullable: true }
+                departement: { type: string, nullable: true }
+                sous_prefecture: { type: string, nullable: true }
                 localite: { $ref: '#/components/schemas/LocaliteResume' }
                 geom: { $ref: '#/components/schemas/GeoJSONPoint' }
                 cgpe: { $ref: '#/components/schemas/CGPESummary' }

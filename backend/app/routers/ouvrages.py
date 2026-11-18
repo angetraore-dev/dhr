@@ -83,6 +83,9 @@ def _build_ouvrage_schema(
     localite = LocaliteResume(
         id_localite=o.localite.id_localite,
         nom_usage=o.localite.nom_usage,
+        region=region,
+        departement=departement,
+        sous_prefecture=sous_prefecture,
     )
     cgpe_summary = None
     if o.cgpes:

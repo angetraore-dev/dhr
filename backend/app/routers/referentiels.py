@@ -182,7 +182,25 @@ def list_localites(
     pagination: OffsetPagination = Depends(),
     db: Session = Depends(get_db),
 ) -> PaginatedOffset[LocaliteResume]:
-    stmt = select(Localite)
+    # Jointures géo (systématiques : on expose toujours les 3 niveaux)
+    rg_loc = RefGeoAdmin.__table__.alias("rg_loc")
+    rg_sp = RefGeoAdmin.__table__.alias("rg_sp")
+    rg_dep = RefGeoAdmin.__table__.alias("rg_dep")
+    rg_reg = RefGeoAdmin.__table__.alias("rg_reg")
+
+    stmt = (
+        select(
+            Localite,
+            rg_reg.c.nom.label("region_nom"),
+            rg_dep.c.nom.label("departement_nom"),
+            rg_sp.c.nom.label("sous_prefecture_nom"),
+        )
+        .join(rg_loc, Localite.id_geo == rg_loc.c.id_geo)
+        .outerjoin(rg_sp, rg_loc.c.parent_id == rg_sp.c.id_geo)
+        .outerjoin(rg_dep, rg_sp.c.parent_id == rg_dep.c.id_geo)
+        .outerjoin(rg_reg, rg_dep.c.parent_id == rg_reg.c.id_geo)
+    )
+
     if id_geo is not None:
         stmt = stmt.where(Localite.id_geo == id_geo)
     if q:
@@ -190,15 +208,35 @@ def list_localites(
             func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{q}%"))
         )
 
-    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = db.scalars(
+    # Comptage (sans jointures, plus rapide)
+    count_stmt = select(func.count()).select_from(Localite)
+    if id_geo is not None:
+        count_stmt = count_stmt.where(Localite.id_geo == id_geo)
+    if q:
+        count_stmt = count_stmt.where(
+            func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{q}%"))
+        )
+    total = db.scalar(count_stmt)
+
+    rows = db.execute(
         stmt.order_by(Localite.nom_usage)
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).all()
 
+    data = [
+        LocaliteResume(
+            id_localite=row[0].id_localite,
+            nom_usage=row[0].nom_usage,
+            region=row[1],
+            departement=row[2],
+            sous_prefecture=row[3],
+        )
+        for row in rows
+    ]
+
     return PaginatedOffset(
-        data=[LocaliteResume.model_validate(r) for r in rows],
+        data=data,
         pagination=pagination.to_response(total=total),
     )
 

@@ -12,18 +12,18 @@
 
 ### 1.1 Stack
 
-| Couche | Technologie | Version |
-|--------|-------------|---------|
-| Base | PostgreSQL + PostGIS | 16 + 3.4 |
-| Backend | Python + FastAPI | 3.12 + 0.115 |
-| ORM | SQLAlchemy + GeoAlchemy2 | 2.0 + 0.16 |
-| Validation | Pydantic | 2.9 |
-| Migrations | Alembic | 1.13 |
-| Excel | openpyxl + XlsxWriter | 3.1 + 3.2 |
-| Frontend | React + Vite + TS | 18 + 5.4 |
-| UI | Tailwind + shadcn/ui | 3.4 |
-| Carto | Leaflet + Esri | 1.9 |
-| État API | TanStack Query | 5.59 |
+| Couche     | Technologie              | Version      |
+|------------|--------------------------|--------------|
+| Base       | PostgreSQL + PostGIS     | 16 + 3.4     |
+| Backend    | Python + FastAPI         | 3.12 + 0.115 |
+| ORM        | SQLAlchemy + GeoAlchemy2 | 2.0 + 0.16   |
+| Validation | Pydantic                 | 2.9          |
+| Migrations | Alembic                  | 1.13         |
+| Excel      | openpyxl + XlsxWriter    | 3.1 + 3.2    |
+| Frontend   | React + Vite + TS        | 18 + 5.4     |
+| UI         | Tailwind + shadcn/ui     | 3.4          |
+| Carto      | Leaflet + Esri           | 1.9          |
+| État API   | TanStack Query           | 5.59         |
 
 ### 1.2 Modèle métier (ADR-014)
 
@@ -46,15 +46,15 @@
 
 ### 2.2 Services
 
-| Service | Statut |
-|---------|--------|
-| `upload.py` | ✅ SHA-256, détection feuilles, 409 sur doublon |
-| `mapping.py` | ✅ Proposition auto + validation |
-| `ingestion.py` | ✅ Rejets détectés, `nb_lignes_total = stockées + rejetées` |
-| `rapprochement.py` | ✅ Exact > alias > trigram, `message_qualite` strict |
-| `consolidation.py` | ✅ Dédoublonnage 3 niveaux (code, tuple, GPS ≤ 20 m), `qualite_eau` |
-| `export.py` | ✅ CTE récursive ORM, KPI `par_district` |
-| `import_localites.py` | ✅ Détection auto feuille + en-tête |
+| Service               | Statut                                                             |
+|-----------------------|--------------------------------------------------------------------|
+| `upload.py`           | ✅ SHA-256, détection feuilles, 409 sur doublon                     |
+| `mapping.py`          | ✅ Proposition auto + validation                                    |
+| `ingestion.py`        | ✅ Rejets détectés, `nb_lignes_total = stockées + rejetées`         |
+| `rapprochement.py`    | ✅ Exact > alias > trigram, `message_qualite` strict                |
+| `consolidation.py`    | ✅ Dédoublonnage 3 niveaux (code, tuple, GPS ≤ 20 m), `qualite_eau` |
+| `export.py`           | ✅ CTE récursive ORM, KPI `par_district`                            |
+| `import_localites.py` | ✅ Détection auto feuille + en-tête                                 |
 
 ### 2.3 Données en base (exemple)
 
@@ -64,28 +64,28 @@
 
 ### 2.4 Corrections backend appliquées (Phase D)
 
-| # | Écart | Fichier | Statut |
-|---|-------|---------|--------|
-| B1 | `export.py` importe `TypeOuvrage` | `export.py` | ✅ |
-| B2–B4 | `models.py` (noms, CHECK, UNIQUE) | `models.py` | ✅ |
-| B5 | `ingestion.py` (rejets) | `ingestion.py` | ✅ |
-| B6 | `consolidation.py` (3 règles) | `consolidation.py` | ✅ |
-| I1–I4 | `ingestion.py` / `rapprochement.py` | — | ✅ |
-| B10 | RFC 7807 + lifespan | `main.py` | ✅ |
-| A1–A4 | `carto.py` (vue, `qualite_eau`, `bailleur` EXISTS, filtres) | `carto.py` | ✅ |
-| C8 | `carto.py` (`Literal`) | `carto.py` | ✅ |
-| B1–B3 | `referentiels.py` (`geom_centre`, N+1, CTE) | `referentiels.py` | ✅ |
-| B9 | `deps.py` (`Literal` + `StatutQualite`) | `deps.py` | ✅ |
-| B6 | `fichiers.py` (imports dupliqués) | `fichiers.py` | ✅ |
-| B7 | `MappingValidation` unicité `entete_brut` | `schemas/fichiers.py` | ✅ |
-| Bug Pydantic | `from __future__ import annotations` retiré de `deps.py`, `carto.py`, `fichiers.py` | — | ✅ |
+| #            | Écart                                                                               | Fichier               | Statut |
+|--------------|-------------------------------------------------------------------------------------|-----------------------|--------|
+| B1           | `export.py` importe `TypeOuvrage`                                                   | `export.py`           | ✅      |
+| B2–B4        | `models.py` (noms, CHECK, UNIQUE)                                                   | `models.py`           | ✅      |
+| B5           | `ingestion.py` (rejets)                                                             | `ingestion.py`        | ✅      |
+| B6           | `consolidation.py` (3 règles)                                                       | `consolidation.py`    | ✅      |
+| I1–I4        | `ingestion.py` / `rapprochement.py`                                                 | —                     | ✅      |
+| B10          | RFC 7807 + lifespan                                                                 | `main.py`             | ✅      |
+| A1–A4        | `carto.py` (vue, `qualite_eau`, `bailleur` EXISTS, filtres)                         | `carto.py`            | ✅      |
+| C8           | `carto.py` (`Literal`)                                                              | `carto.py`            | ✅      |
+| B1–B3        | `referentiels.py` (`geom_centre`, N+1, CTE)                                         | `referentiels.py`     | ✅      |
+| B9           | `deps.py` (`Literal` + `StatutQualite`)                                             | `deps.py`             | ✅      |
+| B6           | `fichiers.py` (imports dupliqués)                                                   | `fichiers.py`         | ✅      |
+| B7           | `MappingValidation` unicité `entete_brut`                                           | `schemas/fichiers.py` | ✅      |
+| Bug Pydantic | `from __future__ import annotations` retiré de `deps.py`, `carto.py`, `fichiers.py` | —                     | ✅      |
 
 ### 2.5 Écarts backend **restants**
 
-| # | Écart | Fichier | Priorité |
-|---|-------|---------|----------|
-| **B8** | `GET /ouvrages` n'expose pas `region`/`departement`/`sous_prefecture` | `schemas/ouvrages.py` + `routers/ouvrages.py` | 🟠 Haute (nécessaire pour `Liste.tsx`) |
-| **D6** | `LigneIngeree` (schéma Pydantic) n'expose pas `message_qualite` | `schemas/ingestion.py` | 🟠 Haute (nécessaire pour `Qualite.tsx`) |
+| #      | Écart                                                                 | Fichier                                       | Priorité                                 |
+|--------|-----------------------------------------------------------------------|-----------------------------------------------|------------------------------------------|
+| **B8** | `GET /ouvrages` n'expose pas `region`/`departement`/`sous_prefecture` | `schemas/ouvrages.py` + `routers/ouvrages.py` | 🟠 Haute (nécessaire pour `Liste.tsx`)   |
+| **D6** | `LigneIngeree` (schéma Pydantic) n'expose pas `message_qualite`       | `schemas/ingestion.py`                        | 🟠 Haute (nécessaire pour `Qualite.tsx`) |
 
 ---
 
@@ -93,36 +93,36 @@
 
 ### 3.1 Fichiers validés
 
-| Fichier | Statut | Détail |
-|---------|--------|--------|
-| `src/lib/api.ts` | ✅ | Types complets, `exportOuvrages` (fetch+blob), 401 redirect, `toQuery`, `parseProblem` |
-| `vite.config.ts` | ✅ | Proxy `/api` → `backend:8000/v1` |
-| `src/lib/filters.ts` | ✅ | `Filters` + `EMPTY_FILTERS` centralisés |
-| `src/components/FiltersPanel.tsx` | ✅ | Cascade géo, reset, debounce, `EMPTY_FILTERS` importé |
-| `src/pages/Liste.tsx` | ✅ | Tableau, export, modale détail, `FiltersPanel` importé |
-| `src/pages/Carte.tsx` | ✅ | **Sélecteur `id_run`** + légende conditionnelle + `mode` passé à `MapView` |
-| `src/components/MapView.tsx` | ✅ | **Palette conditionnelle** (qualité en mode Fichier), formes, `qualite_eau` popup |
-| `src/pages/Qualite.tsx` | ⚠️ | Corrigé, **reste : `message_qualite` (backend) + skeletons** |
+| Fichier                           | Statut | Détail                                                                                 |
+|-----------------------------------|--------|----------------------------------------------------------------------------------------|
+| `src/lib/api.ts`                  | ✅      | Types complets, `exportOuvrages` (fetch+blob), 401 redirect, `toQuery`, `parseProblem` |
+| `vite.config.ts`                  | ✅      | Proxy `/api` → `backend:8000/v1`                                                       |
+| `src/lib/filters.ts`              | ✅      | `Filters` + `EMPTY_FILTERS` centralisés                                                |
+| `src/components/FiltersPanel.tsx` | ✅      | Cascade géo, reset, debounce, `EMPTY_FILTERS` importé                                  |
+| `src/pages/Liste.tsx`             | ✅      | Tableau, export, modale détail, `FiltersPanel` importé                                 |
+| `src/pages/Carte.tsx`             | ✅      | **Sélecteur `id_run`** + légende conditionnelle + `mode` passé à `MapView`             |
+| `src/components/MapView.tsx`      | ✅      | **Palette conditionnelle** (qualité en mode Fichier), formes, `qualite_eau` popup      |
+| `src/pages/Qualite.tsx`           | ⚠️     | Corrigé, **reste : `message_qualite` (backend) + skeletons**                           |
 
 ### 3.2 Fichiers à valider
 
-| Fichier | Statut |
-|---------|--------|
-| `src/pages/Fichiers.tsx` | ⏳ |
-| `src/pages/Mapping.tsx` | ⏳ |
-| `src/components/UploadDialog.tsx` | ⏳ |
-| `src/components/RunStatus.tsx` | ⏳ |
-| `src/pages/Parametres.tsx` | ⏳ |
-| `src/App.tsx` | ⏳ |
+| Fichier                           | Statut |
+|-----------------------------------|--------|
+| `src/pages/Fichiers.tsx`          | ⏳      |
+| `src/pages/Mapping.tsx`           | ⏳      |
+| `src/components/UploadDialog.tsx` | ⏳      |
+| `src/components/RunStatus.tsx`    | ⏳      |
+| `src/pages/Parametres.tsx`        | ⏳      |
+| `src/App.tsx`                     | ⏳      |
 
 ### 3.3 Écarts frontend **restants**
 
-| # | Écart | Fichier | Priorité |
-|---|-------|---------|----------|
-| **F4** | `OLD_Carte.tsx` traîne dans `pages/` | `pages/` | 🟡 Basse |
-| **F6** | Skeletons au lieu de « Chargement... » | Toutes les pages | 🟡 Basse |
-| **F7** | `Liste.tsx` : ajouter colonnes `region`/`departement`/`sous_prefecture` | `Liste.tsx` | 🟠 Haute (demande client) |
-| **F9** | `Parametres.tsx` : bouton « Supprimer le JWT » | `Parametres.tsx` | 🟡 Basse |
+| #      | Écart                                                                   | Fichier          | Priorité                  |
+|--------|-------------------------------------------------------------------------|------------------|---------------------------|
+| **F4** | `OLD_Carte.tsx` traîne dans `pages/`                                    | `pages/`         | 🟡 Basse                  |
+| **F6** | Skeletons au lieu de « Chargement... »                                  | Toutes les pages | 🟡 Basse                  |
+| **F7** | `Liste.tsx` : ajouter colonnes `region`/`departement`/`sous_prefecture` | `Liste.tsx`      | 🟠 Haute (demande client) |
+| **F9** | `Parametres.tsx` : bouton « Supprimer le JWT »                          | `Parametres.tsx` | 🟡 Basse                  |
 
 ---
 
@@ -130,32 +130,32 @@
 
 ### 4.1 Décisions frontend
 
-| # | Décision | Justification | Statut |
-|---|----------|---------------|--------|
-| D1 | `Filters` + `EMPTY_FILTERS` dans `src/lib/filters.ts` | Évite duplication, warning HMR | ✅ |
-| D2 | Sélecteur `id_run` dans `Carte.tsx` (mode Fichier) | Résout le problème des 3098 points ; respecte la Bible (G5, G8) | ✅ |
-| D3 | Palette par `statut_qualite` en mode Fichier | Cohérent avec la sémantique (brut = qualité) | ✅ |
-| D4 | Pas de dédoublonnage à l'ingestion | Contredit la Bible (G5, G8) ; préférer le diff entre runs (V2) | ✅ |
-| D5 | Lignes `rejete` non stockées | Conforme à la Bible § 3.1.6 ; V2 pour les stocker | ✅ |
+| #  | Décision                                              | Justification                                                   | Statut |
+|----|-------------------------------------------------------|-----------------------------------------------------------------|--------|
+| D1 | `Filters` + `EMPTY_FILTERS` dans `src/lib/filters.ts` | Évite duplication, warning HMR                                  | ✅      |
+| D2 | Sélecteur `id_run` dans `Carte.tsx` (mode Fichier)    | Résout le problème des 3098 points ; respecte la Bible (G5, G8) | ✅      |
+| D3 | Palette par `statut_qualite` en mode Fichier          | Cohérent avec la sémantique (brut = qualité)                    | ✅      |
+| D4 | Pas de dédoublonnage à l'ingestion                    | Contredit la Bible (G5, G8) ; préférer le diff entre runs (V2)  | ✅      |
+| D5 | Lignes `rejete` non stockées                          | Conforme à la Bible § 3.1.6 ; V2 pour les stocker               | ✅      |
 
 ### 4.2 Décisions backend
 
-| # | Décision | Référence | Statut |
-|---|----------|-----------|--------|
-| D6 | `message_qualite` à ajouter dans `LigneIngeree` (schéma) | Nécessaire pour `Qualite.tsx` | ⏳ |
-| D7 | 6 statuts de qualité | Bible § 3.1.6 | ✅ |
-| D8 | Dédoublonnage 3 niveaux | Bible § 3.2.3 | ✅ |
-| **D9** | **`GET /ouvrages` expose `region`/`departement`/`sous_prefecture`** | **Nécessaire pour `Liste.tsx`** | ⏳ |
-| **D10** | **`Liste.tsx` affiche 4 niveaux géo (région → département → sous-préfecture → localité)** | **Demande client** | ⏳ |
+| #       | Décision                                                                                  | Référence                       | Statut |
+|---------|-------------------------------------------------------------------------------------------|---------------------------------|--------|
+| D6      | `message_qualite` à ajouter dans `LigneIngeree` (schéma)                                  | Nécessaire pour `Qualite.tsx`   | ⏳      |
+| D7      | 6 statuts de qualité                                                                      | Bible § 3.1.6                   | ✅      |
+| D8      | Dédoublonnage 3 niveaux                                                                   | Bible § 3.2.3                   | ✅      |
+| **D9**  | **`GET /ouvrages` expose `region`/`departement`/`sous_prefecture`**                       | **Nécessaire pour `Liste.tsx`** | ⏳      |
+| **D10** | **`Liste.tsx` affiche 4 niveaux géo (région → département → sous-préfecture → localité)** | **Demande client**              | ⏳      |
 
 ### 4.3 Décisions Bible (mises à jour)
 
-| Section | Modification | Statut |
-|---------|--------------|--------|
-| **5.4.4** | `Liste.tsx` : colonnes géo (4 niveaux) + `exportOuvrages` | ✅ |
-| **4.3.4** | `GET /ouvrages` expose `region`/`departement`/`sous_prefecture` | ✅ |
-| **7.1** | Ajout de l'écart **B8** | ✅ |
-| **7.4** | Retrait de A17 (c'est un écart, pas une contrainte) | ✅ |
+| Section   | Modification                                                    | Statut |
+|-----------|-----------------------------------------------------------------|--------|
+| **5.4.4** | `Liste.tsx` : colonnes géo (4 niveaux) + `exportOuvrages`       | ✅      |
+| **4.3.4** | `GET /ouvrages` expose `region`/`departement`/`sous_prefecture` | ✅      |
+| **7.1**   | Ajout de l'écart **B8**                                         | ✅      |
+| **7.4**   | Retrait de A17 (c'est un écart, pas une contrainte)             | ✅      |
 
 ---
 
@@ -251,13 +251,13 @@ docker compose logs -f frontend
 
 ## 8. Documents de référence
 
-| Document | Rôle | Statut |
-|----------|------|--------|
-| `DHR.md` | Bible (fait autorité) | ✅ v1.0 (mise à jour 5.4.4, 4.3.4, 7.1, 7.4) |
-| `CONSTITUTION.md` | Contrat opérationnel | ✅ v1.0 |
-| `openapi.yaml` | Contrat API | ✅ v1.3.0 |
-| `metadata_conventions.md` | Conventions metadata | ⏳ À réécrire (M1–M6) |
-| `HANDOFF.md` | Ce document | ✅ v1.3 |
+| Document                  | Rôle                  | Statut                                      |
+|---------------------------|-----------------------|---------------------------------------------|
+| `DHR.md`                  | Bible (fait autorité) | ✅ v1.0 (mise à jour 5.4.4, 4.3.4, 7.1, 7.4) |
+| `CONSTITUTION.md`         | Contrat opérationnel  | ✅ v1.0                                      |
+| `openapi.yaml`            | Contrat API           | ✅ v1.3.0                                    |
+| `metadata_conventions.md` | Conventions metadata  | ⏳ À réécrire (M1–M6)                        |
+| `HANDOFF.md`              | Ce document           | ✅ v1.3                                      |
 
 ---
 
@@ -283,24 +283,25 @@ docker compose logs -f frontend
 
 ## 10. Annexe — Fichiers modifiés dans cette session
 
-| Fichier | Changement |
-|---------|-----------|
-| `frontend/src/lib/api.ts` | Réécrit (types, `toQuery`, `parseProblem`, 401, `exportOuvrages`) |
-| `frontend/src/lib/filters.ts` | **Nouveau** (`Filters`, `EMPTY_FILTERS`) |
-| `frontend/src/components/FiltersPanel.tsx` | Imports corrigés, reset, cascade |
-| `frontend/src/pages/Liste.tsx` | Imports corrigés |
-| `frontend/src/pages/Carte.tsx` | Imports corrigés, sélecteur `id_run`, légende conditionnelle, `mode` |
-| `frontend/src/components/MapView.tsx` | Formes, `qualite_eau` popup, palette conditionnelle (`mode`) |
-| `frontend/src/pages/Qualite.tsx` | Réécrit (JSX corrigé) |
-| `backend/app/services/export.py` | Réindenté |
-| `backend/app/main.py` | RFC 7807 + lifespan |
-| `backend/app/deps.py` | `Literal` + `StatutQualite` + sans PEP 563 |
-| `backend/app/routers/carto.py` | A1–A4, C8, (1,2,3,5,6), sans PEP 563 |
-| `backend/app/routers/referentiels.py` | B1, B2, B3 |
-| `backend/app/routers/fichiers.py` | B6, sans PEP 563 |
-| `backend/app/schemas/fichiers.py` | B7 (`MappingValidation`) |
-| `openapi.yaml` | v1.3.0 (indentation, préfixes, schémas) |
-| `DHR.md` | Mise à jour 5.4.4, 4.3.4, 7.1, 7.4 |
+| Fichier                                    | Changement                                                           |
+|--------------------------------------------|----------------------------------------------------------------------|
+| `frontend/src/lib/api.ts`                  | Réécrit (types, `toQuery`, `parseProblem`, 401, `exportOuvrages`)    |
+| `frontend/src/lib/filters.ts`              | **Nouveau** (`Filters`, `EMPTY_FILTERS`)                             |
+| `frontend/src/components/FiltersPanel.tsx` | Imports corrigés, reset, cascade                                     |
+| `frontend/src/pages/Liste.tsx`             | Imports corrigés                                                     |
+| `frontend/src/pages/Carte.tsx`             | Imports corrigés, sélecteur `id_run`, légende conditionnelle, `mode` |
+| `frontend/src/components/MapView.tsx`      | Formes, `qualite_eau` popup, palette conditionnelle (`mode`)         |
+| `frontend/src/pages/Qualite.tsx`           | Réécrit (JSX corrigé)                                                |
+| `backend/app/services/export.py`           | Réindenté                                                            |
+| `backend/app/main.py`                      | RFC 7807 + lifespan                                                  |
+| `backend/app/deps.py`                      | `Literal` + `StatutQualite` + sans PEP 563                           |
+| `backend/app/routers/carto.py`             | A1–A4, C8, (1,2,3,5,6), sans PEP 563                                 |
+| `backend/app/routers/referentiels.py`      | B1, B2, B3                                                           |
+| `backend/app/routers/fichiers.py`          | B6, sans PEP 563                                                     |
+| `backend/app/schemas/fichiers.py`          | B7 (`MappingValidation`)                                             |
+| `openapi.yaml`                             | v1.3.0 (indentation, préfixes, schémas)                              |
+| `DHR.md`                                   | Mise à jour 5.4.4, 4.3.4, 7.1, 7.4                                   |
 
 ---
+
 
