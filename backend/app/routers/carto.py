@@ -24,8 +24,8 @@ from app.deps import (
     TypeAlimentation,
 )
 from app.models import (
-    Fichier,
     Feuille,
+    Fichier,
     LigneIngeree,
     Localite,
     Ouvrage,

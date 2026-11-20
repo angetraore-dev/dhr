@@ -1,6 +1,6 @@
 """
 Consolidation : ligne_ingeree -> ouvrage.
-docker compose exec backend python -u /app/scripts/test_consolidation.py 1 2>&1
+docker compose exec backend python -u /app/scripts/test_consolidation.py <idRun> 2>&1
 """
 from __future__ import annotations
 
