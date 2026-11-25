@@ -14,8 +14,16 @@ interface GeoOption {
     nom: string
 }
 
+interface LocaliteOption {
+    id: number
+    nom: string
+    region: string | null
+    departement: string | null
+    sous_prefecture: string | null
+}
+
 export function FiltersPanel({ filters, onChange, showGeographic = true }: Props) {
-    const [localites, setLocalites] = useState<{ id: number; nom: string, sous_prefecture: string }[]>([])
+    const [localites, setLocalites] = useState<LocaliteOption[]>([])
     const [regions, setRegions] = useState<GeoOption[]>([])
     const [departements, setDepartements] = useState<GeoOption[]>([])
     const [sousPrefectures, setSousPrefectures] = useState<GeoOption[]>([])
@@ -63,13 +71,21 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
         if (!showGeographic) return
         const timer = setTimeout(() => {
             if (filters.localite.length >= 2) {
-                api.localites({ q: filters.localite, limit: 20 })
+                api.localites({
+                    q: filters.localite,
+                    region: filters.region || undefined,
+                    departement: filters.departement || undefined,
+                    sous_prefecture: filters.sous_prefecture || undefined,
+                    limit: 20,
+                })
                     .then((res) => {
                         setLocalites(
                             res.data.map((l) => ({
                                 id: l.id_localite,
                                 nom: l.nom_usage,
-                                sous_prefecture: l.sous_prefecture,
+                                region: l.region ?? null,
+                                departement: l.departement ?? null,
+                                sous_prefecture: l.sous_prefecture ?? null,
                             })),
                         )
                     })
@@ -79,7 +95,7 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
             }
         }, 300)
         return () => clearTimeout(timer)
-    }, [filters.localite, showGeographic])
+    }, [filters.localite, filters.region, filters.departement, filters.sous_prefecture, showGeographic])
 
     const update = (key: keyof Filters, value: string) => {
         if (key === 'region') {
@@ -260,19 +276,31 @@ export function FiltersPanel({ filters, onChange, showGeographic = true }: Props
                                 className="h-9"
                             />
                             {localites.length > 0 && (
-                                <ul className="absolute z-10 w-full mt-1 bg-white border rounded shadow-lg max-h-40 overflow-y-auto">
-                                    {localites.map((l) => (
-                                        <li
-                                            key={l.id}
-                                            onClick={() => {
-                                                update('localite', l.nom)
-                                                setLocalites([])
-                                            }}
-                                            className="px-2 py-1 text-sm hover:bg-gray-100 cursor-pointer"
-                                        >
-                                            {l.nom} ({l.sous_prefecture})
-                                        </li>
-                                    ))}
+                                <ul className="absolute z-10 w-full mt-1 bg-white border rounded shadow-lg max-h-60 overflow-y-auto">
+                                    {localites.map((l) => {
+                                        const chemin = [l.region, l.departement, l.sous_prefecture]
+                                            .filter(Boolean)
+                                            .join(' › ')
+                                        return (
+                                            <li
+                                                key={l.id}
+                                                onClick={() => {
+                                                    update('localite', l.nom)
+                                                    setLocalites([])
+                                                }}
+                                                className="px-2 py-1.5 text-sm hover:bg-gray-100 cursor-pointer border-b last:border-b-0"
+                                            >
+                                                <div className="font-medium text-gray-900">
+                                                    {l.nom}
+                                                </div>
+                                                {chemin && (
+                                                    <div className="text-xs text-gray-500">
+                                                        {chemin}
+                                                    </div>
+                                                )}
+                                            </li>
+                                        )
+                                    })}
                                 </ul>
                             )}
                         </div>

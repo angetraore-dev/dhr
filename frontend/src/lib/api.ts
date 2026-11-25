@@ -170,6 +170,9 @@ export interface Ouvrage {
     realisation_par: 'public' | 'prive' | 'inconnu' | null
     etat: 'fonctionnel' | 'en_panne' | 'abandonne' | 'inconnu'
     annee_realisation: number | null
+    region: string | null
+    departement: string | null
+    sous_prefecture: string | null
     localite: LocaliteResume
     geom: { type: 'Point'; coordinates: [number, number] } | null
     cgpe: { existe: boolean; statut: string | null } | null
@@ -259,10 +262,7 @@ async function parseProblem(res: Response): Promise<Problem> {
 // ---------- Requêtes ----------
 type AuthMode = 'api_key' | 'jwt' | 'none'
 
-async function request<T>(
-    path: string,
-    options: RequestInit & { auth?: AuthMode } = {},
-): Promise<T> {
+async function request<T>(path: string, options: RequestInit & { auth?: AuthMode } = {},): Promise<T> {
     const { auth = 'api_key', ...fetchOptions } = options
 
     const headers = new Headers(fetchOptions.headers)
@@ -313,7 +313,15 @@ export const api = {
     refGeoChemin: (idGeo: number) =>
         request<RefGeoAdmin[]>(`/ref-geo/${idGeo}/chemin`),
 
-    localites: (params?: { q?: string; id_geo?: number; offset?: number; limit?: number }) =>
+    localites: (params?: {
+        q?: string
+        id_geo?: number
+        region?: string
+        departement?: string
+        sous_prefecture?: string
+        offset?: number
+        limit?: number
+    }) =>
         request<{ data: LocaliteResume[]; pagination: PaginationOffset }>(
             `/localites${toQuery(params)}`,
         ),

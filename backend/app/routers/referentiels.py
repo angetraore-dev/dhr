@@ -179,10 +179,12 @@ def get_ref_geo_chemin(id: int, db: Session = Depends(get_db)) -> list[RefGeoAdm
 def list_localites(
     id_geo: int | None = Query(None),
     q: str | None = Query(None, description="Recherche floue sur le nom"),
+    region: str | None = Query(None, description="Filtrer par région"),
+    departement: str | None = Query(None, description="Filtrer par département"),
+    sous_prefecture: str | None = Query(None, description="Filtrer par sous-préfecture"),
     pagination: OffsetPagination = Depends(),
     db: Session = Depends(get_db),
 ) -> PaginatedOffset[LocaliteResume]:
-    # Jointures géo (systématiques : on expose toujours les 3 niveaux)
     rg_loc = RefGeoAdmin.__table__.alias("rg_loc")
     rg_sp = RefGeoAdmin.__table__.alias("rg_sp")
     rg_dep = RefGeoAdmin.__table__.alias("rg_dep")
@@ -201,12 +203,19 @@ def list_localites(
         .outerjoin(rg_reg, rg_dep.c.parent_id == rg_reg.c.id_geo)
     )
 
+    # Filtres
     if id_geo is not None:
         stmt = stmt.where(Localite.id_geo == id_geo)
     if q:
         stmt = stmt.where(
             func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{q}%"))
         )
+    if region:
+        stmt = stmt.where(rg_reg.c.nom == region)
+    if departement:
+        stmt = stmt.where(rg_dep.c.nom == departement)
+    if sous_prefecture:
+        stmt = stmt.where(rg_sp.c.nom == sous_prefecture)
 
     # Comptage (sans jointures, plus rapide)
     count_stmt = select(func.count()).select_from(Localite)
@@ -216,6 +225,22 @@ def list_localites(
         count_stmt = count_stmt.where(
             func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{q}%"))
         )
+    # Pour les filtres géo, on doit joindre
+    if region or departement or sous_prefecture:
+        count_stmt = (
+            count_stmt
+            .join(rg_loc, Localite.id_geo == rg_loc.c.id_geo)
+            .outerjoin(rg_sp, rg_loc.c.parent_id == rg_sp.c.id_geo)
+            .outerjoin(rg_dep, rg_sp.c.parent_id == rg_dep.c.id_geo)
+            .outerjoin(rg_reg, rg_dep.c.parent_id == rg_reg.c.id_geo)
+        )
+        if region:
+            count_stmt = count_stmt.where(rg_reg.c.nom == region)
+        if departement:
+            count_stmt = count_stmt.where(rg_dep.c.nom == departement)
+        if sous_prefecture:
+            count_stmt = count_stmt.where(rg_sp.c.nom == sous_prefecture)
+
     total = db.scalar(count_stmt)
 
     rows = db.execute(
@@ -239,7 +264,6 @@ def list_localites(
         data=data,
         pagination=pagination.to_response(total=total),
     )
-
 
 @router.get(
     "/localites/{id}",

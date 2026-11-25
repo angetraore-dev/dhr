@@ -134,7 +134,7 @@ export default function Liste() {
                         </tr>
                     )}
 
-                    {data?.data.map((o: Ouvrage & { region?: string; departement?: string; sous_prefecture?: string }) => (
+                    {data?.data.map((o: Ouvrage) => (
                         <tr key={o.id_ouvrage} className="border-b hover:bg-gray-50">
                             <td className="px-4 py-3">
                                 <div className="font-medium text-gray-900">#{o.id_ouvrage}</div>
@@ -240,17 +240,17 @@ export default function Liste() {
                                 <dl className="grid grid-cols-[140px_1fr] gap-y-2">
                                     <dt className="text-gray-500">Région</dt>
                                     <dd className="font-medium text-gray-900">
-                                        {(detailOuvrage as any).region || '—'}
+                                        {detailOuvrage.region || '—'}
                                     </dd>
 
                                     <dt className="text-gray-500">Département</dt>
                                     <dd className="font-medium text-gray-900">
-                                        {(detailOuvrage as any).departement || '—'}
+                                        {detailOuvrage.departement || '—'}
                                     </dd>
 
                                     <dt className="text-gray-500">Sous-préfecture</dt>
                                     <dd className="font-medium text-gray-900">
-                                        {(detailOuvrage as any).sous_prefecture || '—'}
+                                        {detailOuvrage.sous_prefecture || '—'}
                                     </dd>
 
                                     <dt className="text-gray-500">Localité</dt>
