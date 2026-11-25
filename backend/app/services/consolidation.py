@@ -8,6 +8,7 @@ IMPORTANT (Bible § 3.2.3) :
 - `_map_nature`, `_map_alimentation`, `_map_realisation`, `_map_etat` : lisent
   `type_ouvrage_brut` et `usage_ouvrage_brut` (P12).
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,8 +33,7 @@ def _normaliser(texte: str | None) -> str:
         return ""
     texte = str(texte).strip().lower()
     texte = "".join(
-        c for c in unicodedata.normalize("NFD", texte)
-        if unicodedata.category(c) != "Mn"
+        c for c in unicodedata.normalize("NFD", texte) if unicodedata.category(c) != "Mn"
     )
     texte = re.sub(r"[\s\-_]+", " ", texte).strip()
     return texte
@@ -217,8 +217,10 @@ def _extraire_code_ouvrage(donnees_brutes: dict[str, Any] | None) -> str | None:
 
 def _distance_km(
     db: Session,
-    lat1: float, lon1: float,
-    lat2: float, lon2: float,
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
 ) -> float:
     """Distance géodésique (km) via ST_Distance de PostGIS."""
     if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
@@ -290,9 +292,11 @@ def _trouver_ouvrage_existant(
                 return cand
     return None
 
+
 # =====================================================================
 # Consolidation d'une ligne
 # =====================================================================
+
 
 def _consolider_ligne(
     db: Session,
@@ -312,9 +316,7 @@ def _consolider_ligne(
         return None
 
     nature = _map_nature(ligne.type_ouvrage_brut, nom_feuille)
-    alimentation = _map_alimentation(
-        ligne.type_ouvrage_brut, ligne.usage_ouvrage_brut, nom_feuille
-    )
+    alimentation = _map_alimentation(ligne.type_ouvrage_brut, ligne.usage_ouvrage_brut, nom_feuille)
     realisation = _map_realisation(ligne.donnees_brutes, ligne.type_ouvrage_brut)
     etat = _map_etat(ligne.etat_ouvrage_brut)
 
@@ -336,9 +338,7 @@ def _consolider_ligne(
             )
             if distance > SEUIL_DOUBLON_KM:
                 ligne.statut_qualite = "doublon_suspect"
-                ligne.message_qualite = (
-                    f"Code ouvrage {code} déjà utilisé à {distance:.1f} km"
-                )
+                ligne.message_qualite = f"Code ouvrage {code} déjà utilisé à {distance:.1f} km"
                 return None
 
     # --- Chercher un ouvrage existant (dédoublonnage) ---
@@ -400,9 +400,7 @@ def _consolider_ligne(
 
     if nature == "inconnu" and alimentation == "AUTRE" and realisation == "inconnu":
         ligne.statut_qualite = "type_ouvrage_inconnu"
-        ligne.message_qualite = (
-            "Attributs métier indéterminés (nature, alimentation, réalisation)"
-        )
+        ligne.message_qualite = "Attributs métier indéterminés (nature, alimentation, réalisation)"
 
     return ouvrage
 
@@ -435,9 +433,7 @@ def consolider_lignes_run(db: Session, id_run: int) -> dict[str, Any]:
         norm = _normaliser(nom_feuille)
         mots_localite = ("localite", "village", "campement")
         mots_ouvrage = ("ouvrage", "forage", "puits", "pmh", "hva", "pea", "hv")
-        return any(m in norm for m in mots_localite) and not any(
-            m in norm for m in mots_ouvrage
-        )
+        return any(m in norm for m in mots_localite) and not any(m in norm for m in mots_ouvrage)
 
     stats = {
         "total_lignes": len(lignes),
@@ -462,9 +458,7 @@ def consolider_lignes_run(db: Session, id_run: int) -> dict[str, Any]:
             alim_before = _map_alimentation(
                 ligne.type_ouvrage_brut, ligne.usage_ouvrage_brut, nom_feuille
             )
-            existing_before = _trouver_ouvrage_existant(
-                db, ligne, nature_before, alim_before
-            )
+            existing_before = _trouver_ouvrage_existant(db, ligne, nature_before, alim_before)
 
             mapping_colonnes = mappings_cache.get(ligne.id_feuille)
             ouvrage = _consolider_ligne(db, ligne, nom_feuille, mapping_colonnes)

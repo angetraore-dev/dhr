@@ -11,6 +11,7 @@ Conventions :
   en ORM : gérés en migration (SQLAlchemy ne les gère pas nativement).
 - `metadata` (colonne) → attribut Python `metadata_` (conflit Base.metadata).
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -52,9 +53,7 @@ class Source(Base):
     id_source: Mapped[int] = mapped_column(Integer, primary_key=True)
     nom: Mapped[str] = mapped_column(String(100), nullable=False)
     type_source: Mapped[str] = mapped_column(String(30), nullable=False)
-    actif: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
+    actif: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     commentaire: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -73,9 +72,7 @@ class Source(Base):
 
     # Relations
     fichiers: Mapped[list[Fichier]] = relationship(back_populates="source")
-    projets_finances: Mapped[list[ProjetFinancement]] = relationship(
-        back_populates="financeur"
-    )
+    projets_finances: Mapped[list[ProjetFinancement]] = relationship(back_populates="financeur")
 
 
 class RefGeoAdmin(Base):
@@ -116,9 +113,7 @@ class RefGeoAdmin(Base):
             "OR (niveau <> 'district' AND parent_id IS NOT NULL)",
             name="chk_ref_geo_parent",
         ),
-        UniqueConstraint(
-            "parent_id", "nom", "niveau", name="uq_ref_geo_parent_nom_niveau"
-        ),
+        UniqueConstraint("parent_id", "nom", "niveau", name="uq_ref_geo_parent_nom_niveau"),
         Index("idx_ref_geo_niveau", "niveau"),
         Index("idx_ref_geo_parent", "parent_id"),
         # idx_ref_geo_nom_trgm : GIN, créé en migration
@@ -170,9 +165,7 @@ class Localite(Base):
     )
     ouvrages: Mapped[list[Ouvrage]] = relationship(back_populates="localite")
     cgpes: Mapped[list[CGPE]] = relationship(back_populates="localite")
-    lignes_ingerees: Mapped[list[LigneIngeree]] = relationship(
-        back_populates="localite"
-    )
+    lignes_ingerees: Mapped[list[LigneIngeree]] = relationship(back_populates="localite")
 
 
 class LocaliteAlias(Base):
@@ -224,12 +217,8 @@ class Fichier(Base):
     statut: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default=text("'en_attente'")
     )
-    nb_feuilles: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0")
-    )
-    nb_lignes_total: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0")
-    )
+    nb_feuilles: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    nb_lignes_total: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     est_reingestion: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
@@ -274,9 +263,7 @@ class Feuille(Base):
     type_contenu: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default=text("'inconnu'")
     )
-    nb_lignes: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("0")
-    )
+    nb_lignes: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     nb_lignes_valides: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
@@ -297,9 +284,7 @@ class Feuille(Base):
             "statut_ingestion IN ('en_attente','en_cours','ingere','partiel','erreur')",
             name="feuille_statut_ingestion_check",
         ),
-        UniqueConstraint(
-            "id_fichier", "index_feuille", name="uq_feuille_fichier_index"
-        ),
+        UniqueConstraint("id_fichier", "index_feuille", name="uq_feuille_fichier_index"),
         Index("idx_feuille_fichier", "id_fichier"),
     )
 
@@ -356,9 +341,7 @@ class IngestionRun(Base):
     id_feuille: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("feuille.id_feuille", ondelete="CASCADE")
     )
-    mode: Mapped[str] = mapped_column(
-        String(20), nullable=False, server_default=text("'complet'")
-    )
+    mode: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'complet'"))
     limite_lignes: Mapped[int | None] = mapped_column(Integer)
     ligne_debut: Mapped[int | None] = mapped_column(Integer)
     ligne_fin: Mapped[int | None] = mapped_column(Integer)
@@ -475,9 +458,7 @@ class LigneIngeree(Base):
     feuille: Mapped[Feuille] = relationship(back_populates="lignes")
     run: Mapped[IngestionRun | None] = relationship(back_populates="lignes")
     localite: Mapped[Localite | None] = relationship(back_populates="lignes_ingerees")
-    ouvrage_consolide: Mapped[Ouvrage | None] = relationship(
-        back_populates="lignes_sources"
-    )
+    ouvrage_consolide: Mapped[Ouvrage | None] = relationship(back_populates="lignes_sources")
 
 
 # =====================================================================
@@ -500,9 +481,7 @@ class Ouvrage(Base):
     nature_ouvrage: Mapped[str | None] = mapped_column(String(20))
     type_alimentation: Mapped[str | None] = mapped_column(String(20))
     realisation_par: Mapped[str | None] = mapped_column(String(20))
-    etat: Mapped[str] = mapped_column(
-        String(20), nullable=False, server_default=text("'inconnu'")
-    )
+    etat: Mapped[str] = mapped_column(String(20), nullable=False, server_default=text("'inconnu'"))
     annee_realisation: Mapped[int | None] = mapped_column(Integer)
     latitude_decimal: Mapped[float | None] = mapped_column(Float)
     longitude_decimal: Mapped[float | None] = mapped_column(Float)
@@ -555,9 +534,7 @@ class Ouvrage(Base):
     financements: Mapped[list[OuvrageProjet]] = relationship(
         back_populates="ouvrage", cascade="all, delete-orphan"
     )
-    lignes_sources: Mapped[list[LigneIngeree]] = relationship(
-        back_populates="ouvrage_consolide"
-    )
+    lignes_sources: Mapped[list[LigneIngeree]] = relationship(back_populates="ouvrage_consolide")
 
 
 class CGPE(Base):
@@ -574,9 +551,7 @@ class CGPE(Base):
     id_ouvrage: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("ouvrage.id_ouvrage", ondelete="SET NULL")
     )
-    existe: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
+    existe: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     date_creation: Mapped[date | None] = mapped_column(Date)
     statut: Mapped[str | None] = mapped_column(String(20))
     nb_membres: Mapped[int | None] = mapped_column(Integer)

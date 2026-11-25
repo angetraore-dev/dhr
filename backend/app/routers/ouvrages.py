@@ -1,6 +1,7 @@
 """
 Router des ouvrages consolidés et CGPE.
 """
+
 from __future__ import annotations
 
 import base64
@@ -270,9 +271,7 @@ def export_ouvrages_excel(
     return StreamingResponse(
         export_ouvrages_xlsx(db, filters_dict, include_metadata, with_summary),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename_xlsx()}"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="{filename_xlsx()}"'},
     )
 
 
@@ -295,9 +294,7 @@ def export_ouvrages_csv_endpoint(
     return StreamingResponse(
         export_ouvrages_csv(db, filters_dict, include_metadata),
         media_type="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename_csv()}"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="{filename_csv()}"'},
     )
 
 

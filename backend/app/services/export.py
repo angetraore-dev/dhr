@@ -15,6 +15,7 @@ Aligné sur la Bible § 4.3.4 et § 5.4.4 :
 - Pas de filtre `district` (réforme territoriale).
 - KPI `par_district` conservé dans la Synthèse (information utile DHR).
 """
+
 from __future__ import annotations
 
 import csv
@@ -164,10 +165,7 @@ def _apply_common_filters(stmt, filters: dict[str, Any]):
         stmt = stmt.where(Ouvrage.annee_realisation <= filters["annee_max"])
 
     # Filtres géographiques
-    if any(
-        filters.get(k)
-        for k in ("region", "departement", "sous_prefecture", "localite")
-    ):
+    if any(filters.get(k) for k in ("region", "departement", "sous_prefecture", "localite")):
         rg_loc = aliased(RefGeoAdmin)
         rg_sp = aliased(RefGeoAdmin)
         rg_dep = aliased(RefGeoAdmin)
@@ -188,9 +186,7 @@ def _apply_common_filters(stmt, filters: dict[str, Any]):
             stmt = stmt.where(rg_sp.nom == filters["sous_prefecture"])
         if filters.get("localite"):
             stmt = stmt.where(
-                func.unaccent(Localite.nom_usage).ilike(
-                    func.unaccent(f"%{filters['localite']}%")
-                )
+                func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{filters['localite']}%"))
             )
 
     # Filtre bailleur via EXISTS (évite les doublons)
@@ -216,11 +212,7 @@ def _apply_common_filters(stmt, filters: dict[str, Any]):
 
 def _get_metadata_columns(db: Session, filters: dict[str, Any]) -> list[str]:
     """Récupère exhaustivement toutes les clés JSONB metadata sur les ouvrages filtrés."""
-    stmt = (
-        select(func.jsonb_object_keys(Ouvrage.metadata_))
-        .select_from(Ouvrage)
-        .distinct()
-    )
+    stmt = select(func.jsonb_object_keys(Ouvrage.metadata_)).select_from(Ouvrage).distinct()
     stmt = _apply_common_filters(stmt, filters)
     keys = db.scalars(stmt).all()
     return sorted(f"metadata_{k}" for k in keys)
@@ -335,9 +327,7 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
         )
     )
     stmt = _apply_common_filters(stmt, filters)
-    stmt = stmt.group_by(Source.nom).order_by(
-        func.count(func.distinct(Ouvrage.id_ouvrage)).desc()
-    )
+    stmt = stmt.group_by(Source.nom).order_by(func.count(func.distinct(Ouvrage.id_ouvrage)).desc())
     kpis["par_bailleur"] = dict(db.execute(stmt).all())
 
     # --- Par district (CTE récursive SQLAlchemy ORM native) ---
@@ -388,27 +378,20 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     kpis["annee_moy"] = round(row[2], 1) if row and row[2] is not None else None
 
     # --- Géolocalisation ---
-    stmt = (
-        select(
-            func.count().filter(text("ouvrage.geom IS NOT NULL")),
-            func.count(),
-        )
-        .select_from(Ouvrage)
-    )
+    stmt = select(
+        func.count().filter(text("ouvrage.geom IS NOT NULL")),
+        func.count(),
+    ).select_from(Ouvrage)
     stmt = _apply_common_filters(stmt, filters)
     row = db.execute(stmt).first()
     kpis["geo_avec"] = row[0] if row else 0
     kpis["geo_total"] = row[1] if row else 0
-    kpis["taux_geo"] = round(
-        (row[0] / row[1]) if row and row[1] > 0 else 0.0, 3
-    )
+    kpis["taux_geo"] = round((row[0] / row[1]) if row and row[1] > 0 else 0.0, 3)
 
     # --- CGPE (correction is_(True)) ---
     stmt = (
         select(
-            func.count().filter(
-                CGPE.existe.is_(True), CGPE.statut == "fonctionnel"
-            ),
+            func.count().filter(CGPE.existe.is_(True), CGPE.statut == "fonctionnel"),
             func.count(CGPE.id_cgpe),
         )
         .select_from(CGPE)
@@ -418,9 +401,7 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     row = db.execute(stmt).first()
     kpis["cgpe_fonctionnel"] = row[0] if row else 0
     kpis["cgpe_total"] = row[1] if row else 0
-    kpis["taux_cgpe"] = round(
-        (row[0] / row[1]) if row and row[1] > 0 else 0.0, 3
-    )
+    kpis["taux_cgpe"] = round((row[0] / row[1]) if row and row[1] > 0 else 0.0, 3)
 
     kpis["filtres"] = {k: v for k, v in filters.items() if v is not None}
     return kpis
@@ -455,9 +436,7 @@ def _format_filters(filters: dict[str, Any]) -> str:
 # =====================================================================
 # Feuille Synthèse (XlsxWriter)
 # =====================================================================
-def _write_synthese_sheet(
-    workbook: xlsxwriter.Workbook, kpis: dict[str, Any]
-) -> None:
+def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -> None:
     ws = workbook.add_worksheet("Synthèse")
 
     fmt_title = workbook.add_format(
@@ -490,9 +469,7 @@ def _write_synthese_sheet(
     fmt_value = workbook.add_format({"bold": True, "font_size": 10})
 
     row = 0
-    ws.merge_range(
-        row, 0, row, 3, "Export des ouvrages hydrauliques ruraux", fmt_title
-    )
+    ws.merge_range(row, 0, row, 3, "Export des ouvrages hydrauliques ruraux", fmt_title)
     ws.set_row(row, 24)
     row += 1
 
@@ -500,9 +477,7 @@ def _write_synthese_sheet(
     ws.write(row, 0, f"Date d'export : {now}", fmt_label)
     row += 1
 
-    ws.write(
-        row, 0, f"Filtres : {_format_filters(kpis['filtres'])}", fmt_label
-    )
+    ws.write(row, 0, f"Filtres : {_format_filters(kpis['filtres'])}", fmt_label)
     row += 2
 
     # Vue d'ensemble
@@ -516,8 +491,7 @@ def _write_synthese_sheet(
         ("Année moyenne", kpis["annee_moy"] if kpis["annee_moy"] is not None else "—"),
         (
             "Taux de géolocalisation",
-            f"{kpis['taux_geo'] * 100:.1f} % "
-            f"({kpis['geo_avec']}/{kpis['geo_total']})",
+            f"{kpis['taux_geo'] * 100:.1f} % " f"({kpis['geo_avec']}/{kpis['geo_total']})",
         ),
         (
             "Taux de CGPE fonctionnel",
@@ -629,9 +603,7 @@ def export_ouvrages_xlsx(
         _write_synthese_sheet(wb, kpis)
 
     ws = wb.add_worksheet("Ouvrages")
-    fmt_header = wb.add_format(
-        {"bold": True, "bg_color": "#EBF5FB", "border": 1}
-    )
+    fmt_header = wb.add_format({"bold": True, "bg_color": "#EBF5FB", "border": 1})
     headers = [label for _, label in STANDARD_COLUMNS]
     if include_metadata:
         headers.extend(metadata_columns)

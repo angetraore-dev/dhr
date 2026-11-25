@@ -1,6 +1,7 @@
 """
 Router des référentiels : sources, référentiel géo, localités.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -31,6 +32,7 @@ router = APIRouter(
     tags=["Référentiels"],
     dependencies=[Depends(require_api_key)],
 )
+
 
 # =====================================================================
 # SOURCES
@@ -63,9 +65,7 @@ def list_sources(
     summary="Nœuds du référentiel géographique administratif",
 )
 def list_ref_geo(
-    niveau: Literal[
-        "district", "region", "departement", "sous_prefecture", "localite"
-    ]
+    niveau: Literal["district", "region", "departement", "sous_prefecture", "localite"]
     | None = Query(None),
     parent_id: int | None = Query(None),
     pagination: OffsetPagination = Depends(),
@@ -88,9 +88,7 @@ def list_ref_geo(
     parent_ids = {r.parent_id for r in rows if r.parent_id is not None}
     parents_map: dict[int, RefGeoAdmin] = {}
     if parent_ids:
-        parents = db.scalars(
-            select(RefGeoAdmin).where(RefGeoAdmin.id_geo.in_(parent_ids))
-        ).all()
+        parents = db.scalars(select(RefGeoAdmin).where(RefGeoAdmin.id_geo.in_(parent_ids))).all()
         parents_map = {p.id_geo: p for p in parents}
 
     result = []
@@ -168,6 +166,7 @@ def get_ref_geo_chemin(id: int, db: Session = Depends(get_db)) -> list[RefGeoAdm
         for r in rows
     ]
 
+
 # =====================================================================
 # LOCALITÉS
 # =====================================================================
@@ -207,9 +206,7 @@ def list_localites(
     if id_geo is not None:
         stmt = stmt.where(Localite.id_geo == id_geo)
     if q:
-        stmt = stmt.where(
-            func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{q}%"))
-        )
+        stmt = stmt.where(func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{q}%")))
     if region:
         stmt = stmt.where(rg_reg.c.nom == region)
     if departement:
@@ -228,8 +225,7 @@ def list_localites(
     # Pour les filtres géo, on doit joindre
     if region or departement or sous_prefecture:
         count_stmt = (
-            count_stmt
-            .join(rg_loc, Localite.id_geo == rg_loc.c.id_geo)
+            count_stmt.join(rg_loc, Localite.id_geo == rg_loc.c.id_geo)
             .outerjoin(rg_sp, rg_loc.c.parent_id == rg_sp.c.id_geo)
             .outerjoin(rg_dep, rg_sp.c.parent_id == rg_dep.c.id_geo)
             .outerjoin(rg_reg, rg_dep.c.parent_id == rg_reg.c.id_geo)
@@ -244,9 +240,7 @@ def list_localites(
     total = db.scalar(count_stmt)
 
     rows = db.execute(
-        stmt.order_by(Localite.nom_usage)
-        .offset(pagination.offset)
-        .limit(pagination.limit)
+        stmt.order_by(Localite.nom_usage).offset(pagination.offset).limit(pagination.limit)
     ).all()
 
     data = [
@@ -265,6 +259,7 @@ def list_localites(
         pagination=pagination.to_response(total=total),
     )
 
+
 @router.get(
     "/localites/{id}",
     response_model=LocaliteSchema,
@@ -276,9 +271,7 @@ def get_localite(
     db: Session = Depends(get_db),
 ) -> LocaliteSchema:
     loc = db.scalar(
-        select(Localite)
-        .where(Localite.id_localite == id)
-        .options(selectinload(Localite.alias))
+        select(Localite).where(Localite.id_localite == id).options(selectinload(Localite.alias))
     )
     if loc is None:
         raise HTTPException(

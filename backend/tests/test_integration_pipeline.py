@@ -8,6 +8,7 @@ Vérifie :
 4. `v_qualite_par_fichier` cohérent.
 5. `v_points_consolides` contient au moins un point.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -55,11 +56,14 @@ class TestPipelineComplet:
         assert nb_ouvrages >= 1
 
         # v_qualite_par_fichier cohérent
-        row = db.execute(text("""
+        row = db.execute(
+            text("""
             SELECT nb_ok, nb_geom_invalide, nb_rejetes, nb_lignes_total
             FROM v_qualite_par_fichier
             WHERE id_fichier = :id_fichier
-        """), {"id_fichier": fichier.id_fichier}).first()
+        """),
+            {"id_fichier": fichier.id_fichier},
+        ).first()
         assert row is not None
         nb_ok, nb_geom_invalide, nb_rejetes, nb_lignes_total = row
         assert nb_ok >= 0

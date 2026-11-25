@@ -1,6 +1,7 @@
 """
 Schémas des référentiels : Source, RefGeoAdmin, Localite.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -36,9 +37,7 @@ class RefGeoAdmin(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id_geo: int
-    niveau: Literal[
-        "district", "region", "departement", "sous_prefecture", "localite"
-    ]
+    niveau: Literal["district", "region", "departement", "sous_prefecture", "localite"]
     nom: str
     code_officiel: str | None = None
     type_localite: Literal["village", "campement", "autre"] | None = None
@@ -54,7 +53,6 @@ class LocaliteResume(BaseModel):
     region: str | None = None
     departement: str | None = None
     sous_prefecture: str | None = None
-
 
 
 class Localite(LocaliteResume):

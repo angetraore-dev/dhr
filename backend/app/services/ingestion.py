@@ -19,6 +19,7 @@ IMPORTANT (Bible § 3.2.1) :
   via `nb_lignes_stockees + nb_lignes_rejetees` (cf. décision C4).
 - Les lignes entièrement vides sont ignorées (ni stockées, ni comptées).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -50,8 +51,7 @@ def _normaliser(texte: str | None) -> str:
         return ""
     texte = str(texte).strip().lower()
     texte = "".join(
-        c for c in unicodedata.normalize("NFD", texte)
-        if unicodedata.category(c) != "Mn"
+        c for c in unicodedata.normalize("NFD", texte) if unicodedata.category(c) != "Mn"
     )
     texte = re.sub(r"[\s\-_]+", " ", texte).strip()
     return texte
@@ -95,6 +95,7 @@ def _to_float(s: str) -> float | None:
 
 def _serialiser_valeur(val: Any) -> Any:
     from datetime import date, datetime, time
+
     if val is None:
         return None
     if isinstance(val, datetime | date | time):
@@ -208,14 +209,16 @@ def detecter_feuilles(
                 ):
                     entetes.append(str(cell.value) if cell.value is not None else "")
 
-            feuilles.append(FeuilleInfo(
-                index=idx,
-                nom=nom,
-                nb_lignes=max(0, nb_lignes_total - header_row),
-                nb_colonnes=nb_colonnes,
-                header_row=header_row,
-                entetes=entetes,
-            ))
+            feuilles.append(
+                FeuilleInfo(
+                    index=idx,
+                    nom=nom,
+                    nb_lignes=max(0, nb_lignes_total - header_row),
+                    nb_colonnes=nb_colonnes,
+                    header_row=header_row,
+                    entetes=entetes,
+                )
+            )
         return feuilles
     finally:
         wb.close()
@@ -238,9 +241,7 @@ def _analyser_entetes(
     index_feuille: int,
     header_row: int,
 ) -> MappingFeuille:
-    mapping = MappingFeuille(
-        index_feuille=index_feuille, header_row=header_row, entetes=entetes
-    )
+    mapping = MappingFeuille(index_feuille=index_feuille, header_row=header_row, entetes=entetes)
     champs_deja_mappes: set[str] = set()
 
     for col_idx, entete in enumerate(entetes):
@@ -325,10 +326,14 @@ def _extraire_lignes(
         for col_idx, champ in mapping.colonnes_mappees.items():
             if col_idx < len(row):
                 val = row[col_idx]
-                if val is not None and str(val).strip() != "" and (
-                    champ not in record
-                    or record[champ] is None
-                    or str(record[champ]).strip() == ""
+                if (
+                    val is not None
+                    and str(val).strip() != ""
+                    and (
+                        champ not in record
+                        or record[champ] is None
+                        or str(record[champ]).strip() == ""
+                    )
                 ):
                     record[champ] = val
 
@@ -342,11 +347,7 @@ def _extraire_lignes(
         # Données brutes
         brut: dict[str, Any] = {}
         for col_idx, val in enumerate(row):
-            if (
-                col_idx < len(mapping.entetes)
-                and val is not None
-                and mapping.entetes[col_idx]
-            ):
+            if col_idx < len(mapping.entetes) and val is not None and mapping.entetes[col_idx]:
                 brut[mapping.entetes[col_idx]] = _serialiser_valeur(val)
         record["donnees_brutes"] = brut
 
@@ -389,15 +390,15 @@ def ingerer_feuille(
         header_row = header_row_force or _detecter_header_row(ws)
 
         entetes: list[str] = []
-        for cell in next(
-            ws.iter_rows(min_row=header_row, max_row=header_row, values_only=False)
-        ):
+        for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row, values_only=False)):
             entetes.append(str(cell.value) if cell.value is not None else "")
 
         from app.services.mapping import charger_mapping_pour_ingestion
+
         mapping_colonnes = charger_mapping_pour_ingestion(db, feuille, entetes, header_row)
 
         from app.services.ingestion import MappingFeuille as MappingFeuilleSchema
+
         mapping = MappingFeuilleSchema(
             index_feuille=feuille.index_feuille,
             header_row=header_row,
@@ -493,9 +494,7 @@ def ingerer_fichier(
     feuilles = db.scalars(stmt).all()
 
     if not feuilles:
-        raise HTTPException(
-            400, f"Aucune feuille pour le fichier {fichier.id_fichier}"
-        )
+        raise HTTPException(400, f"Aucune feuille pour le fichier {fichier.id_fichier}")
 
     total_stockees = 0
     total_rejetees = 0
@@ -508,18 +507,27 @@ def ingerer_fichier(
 
         try:
             res = ingerer_feuille(
-                db, feuille, run, mode, limite_lignes, ligne_debut, ligne_fin,
-                fichier.chemin_stockage, header_row_force,
+                db,
+                feuille,
+                run,
+                mode,
+                limite_lignes,
+                ligne_debut,
+                ligne_fin,
+                fichier.chemin_stockage,
+                header_row_force,
             )
             total_stockees += res["nb_stockees"]
             total_rejetees += res["nb_rejetees"]
-            resultats.append({
-                "id_feuille": feuille_id,
-                "nom_feuille": feuille_nom,
-                "statut": "ok",
-                "nb_stockees": res["nb_stockees"],
-                "nb_rejetees": res["nb_rejetees"],
-            })
+            resultats.append(
+                {
+                    "id_feuille": feuille_id,
+                    "nom_feuille": feuille_nom,
+                    "statut": "ok",
+                    "nb_stockees": res["nb_stockees"],
+                    "nb_rejetees": res["nb_rejetees"],
+                }
+            )
         except Exception as e:
             db.rollback()
             logger.exception("Erreur feuille %s : %s", feuille_nom, e)
@@ -528,12 +536,14 @@ def ingerer_fichier(
                 feuille.statut_ingestion = "erreur"
                 feuille.message_erreur = str(e)
                 db.flush()
-            resultats.append({
-                "id_feuille": feuille_id,
-                "nom_feuille": feuille_nom,
-                "statut": "erreur",
-                "message": str(e),
-            })
+            resultats.append(
+                {
+                    "id_feuille": feuille_id,
+                    "nom_feuille": feuille_nom,
+                    "statut": "erreur",
+                    "message": str(e),
+                }
+            )
 
     # Mise à jour des compteurs agrégés
     run.nb_lignes_ingerees = total_stockees

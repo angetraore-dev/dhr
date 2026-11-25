@@ -44,6 +44,11 @@ export H_READ=(-H "X-API-Key: $API_KEY")
 export H_WRITE=(-H "X-API-Key: $API_KEY" -H "Authorization: Bearer $JWT")
 echo "API_KEY=$API_KEY"
 echo "JWT=$JWT"
+
+
+docker compose exec -T backend ruff format .
+docker compose exec -T backend mypy app/services app/models
+docker compose exec -T backend pytest --cov=app --cov-fail-under=70
 ```
 
 ### 0.2 Vérifier que l'API répond

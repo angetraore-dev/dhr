@@ -7,6 +7,7 @@ Ce fichier est partagé par :
 
 Il ne dépend d'aucun autre service (pas d'import circulaire).
 """
+
 from __future__ import annotations
 
 import re
@@ -117,7 +118,6 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
         re.compile(r"eau[_\s-]*sal[ée]e", re.I),
         re.compile(r"salinit[ée]", re.I),
     ],
-
 }
 
 

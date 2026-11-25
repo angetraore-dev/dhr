@@ -12,6 +12,7 @@ IMPORTANT (Bible § 3.2.2, décision A2) :
 - `message_qualite` a un format STRICT, sans suffixe debug :
   "Localité non résolue : <localite_brute>"
 """
+
 from __future__ import annotations
 
 import logging
@@ -36,8 +37,7 @@ def _normaliser(texte: str | None) -> str:
         return ""
     texte = str(texte).strip().lower()
     texte = "".join(
-        c for c in unicodedata.normalize("NFD", texte)
-        if unicodedata.category(c) != "Mn"
+        c for c in unicodedata.normalize("NFD", texte) if unicodedata.category(c) != "Mn"
     )
     texte = re.sub(r"[\s\-_]+", " ", texte).strip()
     return texte
@@ -88,9 +88,7 @@ def _resoudre_localite(
         ORDER BY score DESC
         LIMIT 1
     """)
-    row = db.execute(
-        trigram_query, {"nom_norm": nom_norm, "seuil": seuil_trigram}
-    ).first()
+    row = db.execute(trigram_query, {"nom_norm": nom_norm, "seuil": seuil_trigram}).first()
     if row is not None:
         return row[0], "trigram"
 
@@ -141,9 +139,7 @@ def rapprocher_lignes_run(
         else:
             # I3 : format STRICT, sans suffixe debug (décision A2)
             ligne.statut_qualite = "localite_non_resolue"
-            ligne.message_qualite = (
-                f"Localité non résolue : {ligne.localite_brute!r}"
-            )
+            ligne.message_qualite = f"Localité non résolue : {ligne.localite_brute!r}"
             stats[methode] += 1
 
     db.flush()

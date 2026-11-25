@@ -1,6 +1,7 @@
 """
 Schémas des runs d'ingestion et lignes normalisées.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

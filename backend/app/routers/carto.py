@@ -40,6 +40,7 @@ router = APIRouter(
     dependencies=[Depends(require_api_key)],
 )
 
+
 # =====================================================================
 # Helpers
 # =====================================================================
@@ -77,9 +78,7 @@ def _row_to_feature_fichier(row: Any) -> dict[str, Any] | None:
             "nom_fichier": m["nom_fichier_original"],
             "source": m["source"],
             "date_ingestion": (
-                m["date_ingestion"].isoformat()
-                if m["date_ingestion"] is not None
-                else None
+                m["date_ingestion"].isoformat() if m["date_ingestion"] is not None else None
             ),
             "id_feuille": m["id_feuille"],
             "nom_feuille": m["nom_feuille"],
@@ -225,11 +224,7 @@ def _build_feature_collection_fichier(
             + (" AND g_reg.nom = :region" if region else "")
             + (" AND g_dep.nom = :departement" if departement else "")
             + (" AND g_sp.nom = :sous_prefecture" if sous_prefecture else "")
-            + (
-                " AND unaccent(l.nom_usage) ILIKE unaccent(:localite)"
-                if localite
-                else ""
-            )
+            + (" AND unaccent(l.nom_usage) ILIKE unaccent(:localite)" if localite else "")
             + ")"
         )
         if region:
@@ -264,15 +259,12 @@ def _build_feature_collection_tous(
     filters: OuvrageFilters,
     db: Session,
 ) -> dict[str, Any]:
-    stmt = (
-        select(
-            Ouvrage,
-            func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
-        )
-        .options(
-            selectinload(Ouvrage.localite),
-            selectinload(Ouvrage.cgpes),
-        )
+    stmt = select(
+        Ouvrage,
+        func.ST_AsGeoJSON(literal_column("ouvrage.geom")).label("geojson"),
+    ).options(
+        selectinload(Ouvrage.localite),
+        selectinload(Ouvrage.cgpes),
     )
 
     # Filtres métier
@@ -311,9 +303,7 @@ def _build_feature_collection_tous(
             stmt = stmt.where(rg_sp.nom == filters.sous_prefecture)
         if filters.localite:
             stmt = stmt.where(
-                func.unaccent(Localite.nom_usage).ilike(
-                    func.unaccent(f"%{filters.localite}%")
-                )
+                func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{filters.localite}%"))
             )
 
     # Filtre bailleur : EXISTS (pas de join → pas de doublons de features).
@@ -342,6 +332,7 @@ def _build_feature_collection_tous(
         "features": features,
         "meta": {"count": len(features)},
     }
+
 
 # =====================================================================
 #
@@ -395,6 +386,7 @@ def _build_feature_collection_ouvrages_fichier(
             "count": len(features),
         },
     }
+
 
 # =====================================================================
 # ROUTES
@@ -475,9 +467,7 @@ def telecharger_geojson_fichier(
     return Response(
         content=payload,
         media_type="application/geo+json",
-        headers={
-            "Content-Disposition": f'attachment; filename="fichier_{id_fichier}.geojson"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="fichier_{id_fichier}.geojson"'},
     )
 
 
@@ -497,4 +487,3 @@ def ouvrages_fichier(
     que le mode Tous (`/carto/tous/points`).
     """
     return _build_feature_collection_ouvrages_fichier(id_fichier, db)
-

@@ -71,6 +71,9 @@ export interface RefGeoAdmin {
 export interface LocaliteResume {
     id_localite: number
     nom_usage: string
+    region?: string | null
+    departement?: string | null
+    sous_prefecture?: string | null
 }
 
 export interface Localite extends LocaliteResume {
@@ -215,6 +218,7 @@ export interface FeatureCollection {
 }
 
 export interface OuvrageFilters {
+    [key: string]: string | number | undefined
     nature_ouvrage?: string
     type_alimentation?: string
     realisation_par?: string

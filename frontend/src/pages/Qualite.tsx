@@ -2,9 +2,6 @@ import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
     Activity,
-    CheckCircle2,
-    AlertTriangle,
-    XCircle,
     Eye,
     X,
     ChevronRight,

@@ -1,6 +1,7 @@
 """
 Router des fichiers et feuilles.
 """
+
 from __future__ import annotations
 
 import logging
@@ -107,9 +108,7 @@ def list_fichiers(
 )
 def get_fichier(id: int, db: Session = Depends(get_db)):
     f = db.scalar(
-        select(Fichier)
-        .where(Fichier.id_fichier == id)
-        .options(selectinload(Fichier.source))
+        select(Fichier).where(Fichier.id_fichier == id).options(selectinload(Fichier.source))
     )
     if f is None:
         raise HTTPException(
@@ -156,9 +155,7 @@ def list_feuilles_fichier(
     stmt = select(Feuille).where(Feuille.id_fichier == id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = db.scalars(
-        stmt.order_by(Feuille.index_feuille)
-        .offset(pagination.offset)
-        .limit(pagination.limit)
+        stmt.order_by(Feuille.index_feuille).offset(pagination.offset).limit(pagination.limit)
     ).all()
 
     return PaginatedOffset(
@@ -197,7 +194,9 @@ def put_mapping(
 ):
     fichier = db.get(Fichier, id)
     if fichier is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Fichier {id} introuvable")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Fichier {id} introuvable"
+        )
 
     if id_feuille is not None:
         feuille = db.get(Feuille, id_feuille)
@@ -208,10 +207,7 @@ def put_mapping(
             )
     else:
         feuille = db.scalar(
-            select(Feuille)
-            .where(Feuille.id_fichier == id)
-            .order_by(Feuille.index_feuille)
-            .limit(1)
+            select(Feuille).where(Feuille.id_fichier == id).order_by(Feuille.index_feuille).limit(1)
         )
         if feuille is None:
             raise HTTPException(
@@ -286,6 +282,7 @@ def _valider_parametres_run(
                 detail="En mode 'plage', ligne_debut et ligne_fin sont requis avec ligne_fin >= ligne_debut.",
             )
 
+
 @router.post(
     "/fichiers/{id}/runs",
     status_code=status.HTTP_202_ACCEPTED,
@@ -330,7 +327,6 @@ def lancer_run(
             detail=str(e),
         ) from e
 
-
     def _pipeline() -> None:
         db2 = SessionLocal()
         try:
@@ -354,6 +350,7 @@ def lancer_run(
         "poll_url": f"/v1/runs/{run.id_run}",
     }
 
+
 @router.get(
     "/fichiers/{id}/runs",
     response_model=PaginatedOffset[IngestionRunSchema],
@@ -375,9 +372,7 @@ def list_runs_fichier(
     stmt = select(IngestionRun).where(IngestionRun.id_fichier == id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = db.scalars(
-        stmt.order_by(IngestionRun.id_run.desc())
-        .offset(pagination.offset)
-        .limit(pagination.limit)
+        stmt.order_by(IngestionRun.id_run.desc()).offset(pagination.offset).limit(pagination.limit)
     ).all()
 
     return PaginatedOffset(

@@ -1,6 +1,7 @@
 """
 Authentification : API key (lecture) + JWT Bearer (écriture).
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,9 +45,7 @@ def create_access_token(sub: str, role: str = "ingesteur", expires_min: int | No
 def decode_token(token: str) -> JWTUser:
     """Décode un JWT et retourne l'utilisateur."""
     try:
-        payload = jwt.decode(
-            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
-        )
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
         sub = payload.get("sub")
         role = payload.get("role", "ingesteur")
         if sub is None:
@@ -64,6 +63,7 @@ def decode_token(token: str) -> JWTUser:
 
 
 # --- Dépendances FastAPI ---
+
 
 async def require_api_key(
     request: Request,
@@ -111,6 +111,7 @@ async def require_role(role: str):
     Dépendance qui exige un rôle JWT spécifique.
     Usage : user: JWTUser = Depends(require_role("admin"))
     """
+
     async def _checker(user: JWTUser = Depends(require_jwt)) -> JWTUser:
         if user.role != role and user.role != "admin":
             raise HTTPException(

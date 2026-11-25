@@ -1,6 +1,7 @@
 """
 Router ingestion : suivi des runs et des lignes.
 """
+
 from __future__ import annotations
 
 from typing import Literal

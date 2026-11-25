@@ -9,6 +9,7 @@ Couvre :
 - `qualite_eau` (B6.3) : extraction des indicateurs sanitaires.
 - `_map_nature`, `_map_alimentation`, `_map_realisation`, `_map_etat`.
 """
+
 from __future__ import annotations
 
 from app.models import IngestionRun, LigneIngeree, Ouvrage
@@ -24,9 +25,13 @@ from app.services.consolidation import (
 
 
 def _creer_ligne_ok(
-    db, id_feuille, id_run, id_localite,
+    db,
+    id_feuille,
+    id_run,
+    id_localite,
     localite_brute="LOC_TEST",
-    lat=7.5, lon=-5.5,
+    lat=7.5,
+    lon=-5.5,
     type_ouvrage_brut="Forage ADM",
     usage_ouvrage_brut="PMH",
     etat_ouvrage_brut="Fonctionnel",
@@ -115,10 +120,12 @@ class TestMapEtat:
 
 class TestExtraireQualiteEau:
     def test_indicateur_normalise(self):
-        result = _extraire_qualite_eau({
-            "Onchocercose": "Non",
-            "Vers_Guinee": "Oui",
-        })
+        result = _extraire_qualite_eau(
+            {
+                "Onchocercose": "Non",
+                "Vers_Guinee": "Oui",
+            }
+        )
         assert result is not None
         assert result["onchocercose"] == "Non"
         assert result["vers_de_guinee"] == "Oui"
@@ -126,10 +133,12 @@ class TestExtraireQualiteEau:
         assert result["brut_Vers_Guinee"] == "Oui"
 
     def test_aucun_indicateur(self):
-        result = _extraire_qualite_eau({
-            "Localité": "LOC_TEST",
-            "Latitude": 7.5,
-        })
+        result = _extraire_qualite_eau(
+            {
+                "Localité": "LOC_TEST",
+                "Latitude": 7.5,
+            }
+        )
         assert result is None
 
     def test_mot_cle_generique(self):
@@ -139,19 +148,13 @@ class TestExtraireQualiteEau:
 
 
 class TestConsolidationLigne:
-    def test_creation_ouvrage(
-        self, db, localite_test, fichier_avec_feuille
-    ):
+    def test_creation_ouvrage(self, db, localite_test, fichier_avec_feuille):
         fichier, feuille = fichier_avec_feuille
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
-        ligne = _creer_ligne_ok(
-            db, feuille.id_feuille, run.id_run, localite_test.id_localite
-        )
+        ligne = _creer_ligne_ok(db, feuille.id_feuille, run.id_run, localite_test.id_localite)
 
         stats = consolider_lignes_run(db, run.id_run)
 
@@ -165,33 +168,37 @@ class TestConsolidationLigne:
         assert ouvrage.etat == "fonctionnel"
         assert ouvrage.metadata_["brut_Code ouvrage"] == "CODE001"
 
-    def test_doublon_suspect(
-        self, db, localite_test, fichier_avec_feuille
-    ):
+    def test_doublon_suspect(self, db, localite_test, fichier_avec_feuille):
         """B6.1 : même code + distance > 1 km → doublon_suspect."""
         fichier, feuille = fichier_avec_feuille
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
         # 1er ouvrage à (7.5, -5.5)
         _creer_ligne_ok(
-            db, feuille.id_feuille, run.id_run, localite_test.id_localite,
-            lat=7.5, lon=-5.5, donnees_brutes={"Code ouvrage": "CODE_DUP"},
+            db,
+            feuille.id_feuille,
+            run.id_run,
+            localite_test.id_localite,
+            lat=7.5,
+            lon=-5.5,
+            donnees_brutes={"Code ouvrage": "CODE_DUP"},
         )
         consolider_lignes_run(db, run.id_run)
 
         # 2e ligne avec le même code mais à (8.5, -5.5) → ~111 km
-        run2 = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+        run2 = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run2)
         db.flush()
         ligne2 = _creer_ligne_ok(
-            db, feuille.id_feuille, run2.id_run, localite_test.id_localite,
-            lat=8.5, lon=-5.5, donnees_brutes={"Code ouvrage": "CODE_DUP"},
+            db,
+            feuille.id_feuille,
+            run2.id_run,
+            localite_test.id_localite,
+            lat=8.5,
+            lon=-5.5,
+            donnees_brutes={"Code ouvrage": "CODE_DUP"},
         )
 
         stats = consolider_lignes_run(db, run2.id_run)
@@ -201,26 +208,25 @@ class TestConsolidationLigne:
         assert "CODE_DUP" in ligne2.message_qualite
         assert ligne2.id_ouvrage_consolide is None
 
-    def test_type_ouvrage_inconnu(
-        self, db, localite_test, fichier_avec_feuille
-    ):
+    def test_type_ouvrage_inconnu(self, db, localite_test, fichier_avec_feuille):
         """B6.2 : nature/alim/réal tous inconnus → type_ouvrage_inconnu."""
         fichier, feuille = fichier_avec_feuille
         feuille.nom_feuille = "FEUILLE_NEUTRE"
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
         ligne = _creer_ligne_ok(
-            db, feuille.id_feuille, run.id_run, localite_test.id_localite,
+            db,
+            feuille.id_feuille,
+            run.id_run,
+            localite_test.id_localite,
             type_ouvrage_brut=None,
             usage_ouvrage_brut=None,
             etat_ouvrage_brut=None,
         )
         # Pas de code ouvrage pour éviter le dédoublonnage
-        ligne.donnees_brutes={}
+        ligne.donnees_brutes = {}
         db.flush()
 
         stats = consolider_lignes_run(db, run.id_run)
@@ -231,13 +237,9 @@ class TestConsolidationLigne:
         # L'ouvrage est quand même créé
         assert ligne.id_ouvrage_consolide is not None
 
-    def test_consolidation_qualite_eau_via_mapping(
-        self, db, localite_test, fichier_avec_feuille
-    ):
+    def test_consolidation_qualite_eau_via_mapping(self, db, localite_test, fichier_avec_feuille):
         fichier, feuille = fichier_avec_feuille
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
@@ -254,9 +256,7 @@ class TestConsolidationLigne:
             "Col_Potabilite": "qualite_eau",
             "Taux_Arsenic": "metadata.qualite_eau.arsenic",
         }
-        ouvrage = _consolider_ligne(
-            db, ligne, feuille.nom_feuille, mapping_colonnes=mapping
-        )
+        ouvrage = _consolider_ligne(db, ligne, feuille.nom_feuille, mapping_colonnes=mapping)
         assert ouvrage is not None
         assert ouvrage.qualite_eau["qualite_eau"] == "Potable"
         assert ouvrage.qualite_eau["arsenic"] == "0.005"
@@ -265,9 +265,7 @@ class TestConsolidationLigne:
         self, db, localite_test, fichier_avec_feuille
     ):
         fichier, feuille = fichier_avec_feuille
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
@@ -291,7 +289,7 @@ class TestConsolidationLigne:
             lat=7.52010,
             lon=-5.52000,
             annee_projet=None,
-            num_ligne_source=2
+            num_ligne_source=2,
         )
         ligne2.donnees_brutes = {}
         o2 = _consolider_ligne(db, ligne2, feuille.nom_feuille)
@@ -299,5 +297,3 @@ class TestConsolidationLigne:
         assert o1 is not None
         assert o2 is not None
         assert o1.id_ouvrage == o2.id_ouvrage
-
-

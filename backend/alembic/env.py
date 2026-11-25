@@ -18,6 +18,7 @@ pas nativement). Ne PAS appliquer ces migrations de test. Vérifier qu'elles
 ne contiennent pas de `op.drop_table` ou `op.drop_column` sur des colonnes
 non générées (ce qui signalerait une vraie dérive).
 """
+
 from __future__ import annotations
 
 import sys

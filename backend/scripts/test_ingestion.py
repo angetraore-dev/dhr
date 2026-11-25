@@ -2,6 +2,7 @@
 Test d'ingestion réelle : parse + insère en base.
 Usage : docker compose exec backend python -u /app/scripts/test_ingestion.py /app/tests/fixtures/fichier1.xlsx 2>&1
 """
+
 from __future__ import annotations
 
 import sys
@@ -52,7 +53,9 @@ def test(chemin: str) -> None:
         feuilles_info = detecter_feuilles(chemin)
         print(f"[3] {len(feuilles_info)} feuilles détectées", flush=True)
         for fi in feuilles_info:
-            print(f"    - '{fi.nom}' ({fi.nb_lignes} lignes, header_row={fi.header_row})", flush=True)
+            print(
+                f"    - '{fi.nom}' ({fi.nb_lignes} lignes, header_row={fi.header_row})", flush=True
+            )
 
         for fi in feuilles_info:
             feuille = Feuille(
@@ -88,27 +91,47 @@ def test(chemin: str) -> None:
 
         # --- Vérifications ---
         db.refresh(fichier)
-        total_stockees = db.scalar(select(func.count()).select_from(LigneIngeree).where(
-            LigneIngeree.id_run == run.id_run
-        )) or 0
-        print(f"\n[9] Total lignes stockées en base (run {run.id_run}) : {total_stockees}", flush=True)
+        total_stockees = (
+            db.scalar(
+                select(func.count())
+                .select_from(LigneIngeree)
+                .where(LigneIngeree.id_run == run.id_run)
+            )
+            or 0
+        )
+        print(
+            f"\n[9] Total lignes stockées en base (run {run.id_run}) : {total_stockees}", flush=True
+        )
         print(f"    Lignes totales déclarées (Bible C4/B5) : {fichier.nb_lignes_total}", flush=True)
 
-        avec_coords = db.scalar(select(func.count()).select_from(LigneIngeree).where(
-            LigneIngeree.id_run == run.id_run,
-            LigneIngeree.latitude_decimal.isnot(None),
-            LigneIngeree.longitude_decimal.isnot(None),
-        )) or 0
+        avec_coords = (
+            db.scalar(
+                select(func.count())
+                .select_from(LigneIngeree)
+                .where(
+                    LigneIngeree.id_run == run.id_run,
+                    LigneIngeree.latitude_decimal.isnot(None),
+                    LigneIngeree.longitude_decimal.isnot(None),
+                )
+            )
+            or 0
+        )
         if total_stockees:
-            print(f"[10] Qualité : {avec_coords} lignes valides sur {total_stockees} stockées ({avec_coords/total_stockees*100:.1f}%)", flush=True)
+            print(
+                f"[10] Qualité : {avec_coords} lignes valides sur {total_stockees} stockées ({avec_coords/total_stockees*100:.1f}%)",
+                flush=True,
+            )
 
         # 3 exemples
         print("\n[11] 3 premiers enregistrements :", flush=True)
-        lignes = db.scalars(select(LigneIngeree).where(
-            LigneIngeree.id_run == run.id_run
-        ).limit(3)).all()
+        lignes = db.scalars(
+            select(LigneIngeree).where(LigneIngeree.id_run == run.id_run).limit(3)
+        ).all()
         for lig in lignes:
-            print(f"    - localite={lig.localite_brute!r}, lat={lig.latitude_decimal}, lon={lig.longitude_decimal}, type={lig.type_ouvrage_brut!r}", flush=True)
+            print(
+                f"    - localite={lig.localite_brute!r}, lat={lig.latitude_decimal}, lon={lig.longitude_decimal}, type={lig.type_ouvrage_brut!r}",
+                flush=True,
+            )
 
     except Exception as e:
         print(f"\n[X] EXCEPTION : {type(e).__name__}: {e}", flush=True)

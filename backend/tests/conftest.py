@@ -11,6 +11,7 @@ Prérequis :
 - Le backend a démarré au moins une fois (migrations appliquées).
 - Les extensions PostGIS, pg_trgm, unaccent, fuzzystrmatch sont installées.
 """
+
 from __future__ import annotations
 
 from collections.abc import Generator
@@ -95,6 +96,7 @@ def client(db: Session) -> Generator[TestClient, None, None]:
     """
     Client HTTP FastAPI avec get_db overridé pour utiliser la session de test.
     """
+
     def override_get_db():
         yield db
 
@@ -114,6 +116,7 @@ def source_onep(db: Session):
     Si elle n'existe pas, on la crée à la volée (mais elle devrait exister).
     """
     from app.models import Source
+
     src = db.query(Source).filter(Source.nom == "ONEP").first()
     if src is None:
         src = Source(
@@ -130,6 +133,7 @@ def source_onep(db: Session):
 def fichier_vide(db: Session, source_onep):
     """Crée un fichier sans feuille (pour tester l'upload)."""
     from app.models import Fichier
+
     f = Fichier(
         id_source=source_onep.id_source,
         nom_fichier_original="test.xlsx",
@@ -179,6 +183,7 @@ def ref_geo_ci(db: Session):
 def localite_test(db: Session, ref_geo_ci):
     """Crée une localité métier rattachée à LOCALITE_TEST."""
     from app.models import Localite
+
     loc = Localite(
         id_geo=ref_geo_ci.id_geo,
         nom_usage="LOC_TEST",
@@ -194,6 +199,7 @@ def localite_test(db: Session, ref_geo_ci):
 def fichier_avec_feuille(db: Session, source_onep):
     """Crée un fichier + une feuille, prêt pour un run."""
     from app.models import Feuille, Fichier
+
     f = Fichier(
         id_source=source_onep.id_source,
         nom_fichier_original="test.xlsx",
@@ -226,14 +232,24 @@ def excel_fixture_path() -> Path:
 
     if not path.exists():
         import openpyxl
+
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "PMH"
 
-        ws.append([
-            "Localité", "Latitude", "Longitude", "Type_Ouvrage",
-            "Etat", "Année", "Bailleur", "Usage_Ouvrage", "A_CGPE",
-        ])
+        ws.append(
+            [
+                "Localité",
+                "Latitude",
+                "Longitude",
+                "Type_Ouvrage",
+                "Etat",
+                "Année",
+                "Bailleur",
+                "Usage_Ouvrage",
+                "A_CGPE",
+            ]
+        )
         ws.append(["LOC_TEST", 7.5, -5.5, "Forage ADM", "Fonctionnel", 2020, "ONEP", "PMH", "Oui"])
         ws.append(["LOC_TEST", None, None, "PMH", "En panne", 2019, "ONEP", "PMH", "Non"])
         ws.append(["TOTAL", "", "", "", "", "", "", "", ""])

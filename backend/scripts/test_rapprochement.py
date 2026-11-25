@@ -9,6 +9,7 @@ Exemples :
     python /app/scripts/test_rapprochement.py 56
     python /app/scripts/test_rapprochement.py /app/tests/fixtures/fichier1.xlsx
 """
+
 from __future__ import annotations
 
 import sys

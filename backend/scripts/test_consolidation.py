@@ -2,6 +2,7 @@
 Consolidation : ligne_ingeree -> ouvrage.
 docker compose exec backend python -u /app/scripts/test_consolidation.py <idRun> 2>&1
 """
+
 from __future__ import annotations
 
 import sys
@@ -36,7 +37,9 @@ def main(id_run: int) -> None:
         # Stats en base
         total_ouvrages = db.scalar(select(func.count()).select_from(Ouvrage))
         total_lignes_consolidees = db.scalar(
-            select(func.count()).select_from(LigneIngeree).where(
+            select(func.count())
+            .select_from(LigneIngeree)
+            .where(
                 LigneIngeree.id_run == id_run,
                 LigneIngeree.id_ouvrage_consolide.isnot(None),
             )

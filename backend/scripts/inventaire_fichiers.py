@@ -1,4 +1,5 @@
-﻿"""Inventaire des fichiers Excel."""
+"""Inventaire des fichiers Excel."""
+
 import sys
 from pathlib import Path
 

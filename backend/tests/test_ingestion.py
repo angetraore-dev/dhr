@@ -11,6 +11,7 @@ Couvre :
 - Coordonnées parsées (lat/lon valides).
 - `statut_qualite = 'geom_invalide'` si lat/lon NULL.
 """
+
 from __future__ import annotations
 
 from app.models import LigneIngeree
@@ -60,17 +61,14 @@ class TestDetectionLignesVides:
 class TestIngestionFichier:
     """Tests de l'ingestion complète d'un fichier."""
 
-    def test_ingestion_basique(
-        self, db, fichier_avec_feuille, excel_fixture_path
-    ):
+    def test_ingestion_basique(self, db, fichier_avec_feuille, excel_fixture_path):
         """L'ingestion stocke les lignes valides et compte les rejets."""
         fichier, feuille = fichier_avec_feuille
 
         # Créer un run
         from app.models import IngestionRun
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
@@ -89,9 +87,7 @@ class TestIngestionFichier:
         assert fichier.nb_lignes_total == 3  # 2 stockées + 1 rejetée
 
         # Vérifier les lignes stockées
-        lignes = db.query(LigneIngeree).filter(
-            LigneIngeree.id_feuille == feuille.id_feuille
-        ).all()
+        lignes = db.query(LigneIngeree).filter(LigneIngeree.id_feuille == feuille.id_feuille).all()
         assert len(lignes) == 2
 
         # Ligne 1 : valide
@@ -105,17 +101,14 @@ class TestIngestionFichier:
         assert ligne_invalide.latitude_decimal is None
         assert "Coordonnées manquantes" in ligne_invalide.message_qualite
 
-    def test_fichier_statut_non_modifie(
-        self, db, fichier_avec_feuille, excel_fixture_path
-    ):
+    def test_fichier_statut_non_modifie(self, db, fichier_avec_feuille, excel_fixture_path):
         """I2 : l'ingestion ne touche PAS à fichier.statut."""
         fichier, _ = fichier_avec_feuille
         statut_avant = fichier.statut
 
         from app.models import IngestionRun
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
@@ -125,25 +118,26 @@ class TestIngestionFichier:
         # Le statut n'a pas changé (c'est run.py qui le fera)
         assert fichier.statut == statut_avant
 
-    def test_usage_ouvrage_brut_extrait(
-        self, db, fichier_avec_feuille, excel_fixture_path
-    ):
+    def test_usage_ouvrage_brut_extrait(self, db, fichier_avec_feuille, excel_fixture_path):
         """P12 : usage_ouvrage_brut est extrait."""
         fichier, feuille = fichier_avec_feuille
         from app.models import IngestionRun
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
         fichier.chemin_stockage = str(excel_fixture_path)
         ingerer_fichier(db, fichier, run, mode="complet")
 
-        lignes = db.query(LigneIngeree).filter(
-            LigneIngeree.id_feuille == feuille.id_feuille,
-            LigneIngeree.statut_qualite == "ok",
-        ).all()
+        lignes = (
+            db.query(LigneIngeree)
+            .filter(
+                LigneIngeree.id_feuille == feuille.id_feuille,
+                LigneIngeree.statut_qualite == "ok",
+            )
+            .all()
+        )
         assert len(lignes) >= 1
         ligne = lignes[0]
         assert ligne.usage_ouvrage_brut == "PMH"

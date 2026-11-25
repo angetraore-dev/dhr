@@ -6,6 +6,7 @@ Service d'upload : sauvegarde d'un fichier Excel + détection des feuilles.
 3. Détecte les feuilles (detecter_feuilles)
 4. Crée les lignes feuille en base
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -66,6 +67,7 @@ def uploader_fichier(
 
     # Nom unique : timestamp + nom original
     from datetime import datetime
+
     ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     nom_stockage = f"{ts}_{nom_original}"
     chemin = upload_dir / nom_stockage

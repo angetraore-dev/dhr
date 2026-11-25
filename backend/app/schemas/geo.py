@@ -1,6 +1,7 @@
 """
 Schémas GeoJSON.
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -12,9 +13,7 @@ class GeoJSONPoint(BaseModel):
     """Point GeoJSON — [longitude, latitude]."""
 
     type: Literal["Point"] = "Point"
-    coordinates: tuple[float, float] = Field(
-        ..., description="[longitude, latitude]"
-    )
+    coordinates: tuple[float, float] = Field(..., description="[longitude, latitude]")
 
 
 class GeoJSONFeature(BaseModel):
