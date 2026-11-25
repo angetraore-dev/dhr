@@ -13,6 +13,7 @@ Stratégie :
 4. Crée une localite rattachée au nœud 'localite'
 5. Remplit metadata (population, etc.)
 """
+
 from __future__ import annotations
 
 import logging
@@ -36,13 +37,14 @@ def _normaliser(texte: str | None) -> str:
         return ""
     import re
     import unicodedata
+
     texte = str(texte).strip().lower()
     texte = "".join(
-        c for c in unicodedata.normalize("NFD", texte)
-        if unicodedata.category(c) != "Mn"
+        c for c in unicodedata.normalize("NFD", texte) if unicodedata.category(c) != "Mn"
     )
     texte = re.sub(r"[\s\-_]+", " ", texte).strip()
     return texte
+
 
 def _get_or_create_district_defaut(db: Session) -> RefGeoAdmin:
     """Récupère ou crée un district par défaut pour les régions sans district connu."""
@@ -63,6 +65,7 @@ def _get_or_create_district_defaut(db: Session) -> RefGeoAdmin:
     db.add(district)
     db.flush()
     return district
+
 
 def _get_or_create_ref_geo(
     db: Session,
@@ -148,9 +151,7 @@ def _choisir_feuille(wb: openpyxl.Workbook, nom_feuille: str | None) -> str:
 
     if nom_feuille is not None:
         if nom_feuille not in wb.sheetnames:
-            raise ValueError(
-                f"Feuille '{nom_feuille}' introuvable. Disponibles : {wb.sheetnames}"
-            )
+            raise ValueError(f"Feuille '{nom_feuille}' introuvable. Disponibles : {wb.sheetnames}")
         return nom_feuille
 
     for sheet in wb.sheetnames:
@@ -196,6 +197,7 @@ def importer_localites(
     Retourne les stats.
     """
     from pathlib import Path
+
     if not Path(chemin_fichier).exists():
         raise FileNotFoundError(f"Fichier introuvable : {chemin_fichier}")
 
@@ -212,7 +214,9 @@ def importer_localites(
             ws.iter_rows(min_row=ligne_entete, max_row=ligne_entete, values_only=False),
             (),
         )
-        entetes: list[str] = [str(cell.value) if cell.value is not None else "" for cell in row_entete]
+        entetes: list[str] = [
+            str(cell.value) if cell.value is not None else "" for cell in row_entete
+        ]
 
         # Détecte les colonnes utiles
         idx_region = idx_departement = idx_sous_pref = idx_localite = None
@@ -240,15 +244,22 @@ def importer_localites(
             elif "longitude" in h_norm:
                 idx_lon = i
             elif (
-                ("q1.7" in h_norm or "population" in h_norm or h_norm in ("pop actuelle", "pop recensee"))
-                and idx_population is None
-            ):
+                "q1.7" in h_norm
+                or "population" in h_norm
+                or h_norm in ("pop actuelle", "pop recensee")
+            ) and idx_population is None:
                 idx_population = i
 
         logger.info(
             "Colonnes détectées : region=%s, dept=%s, sous_pref=%s, localite=%s, type=%s, lat=%s, lon=%s, pop=%s",
-            idx_region, idx_departement, idx_sous_pref, idx_localite,
-            idx_type_localite, idx_lat, idx_lon, idx_population,
+            idx_region,
+            idx_departement,
+            idx_sous_pref,
+            idx_localite,
+            idx_type_localite,
+            idx_lat,
+            idx_lon,
+            idx_population,
         )
 
         if idx_localite is None or idx_sous_pref is None:
@@ -277,14 +288,28 @@ def importer_localites(
             nb_lignes += 1
 
             try:
-                region = row[idx_region] if idx_region is not None and idx_region < len(row) else None
-                departement = row[idx_departement] if idx_departement is not None and idx_departement < len(row) else None
+                region = (
+                    row[idx_region] if idx_region is not None and idx_region < len(row) else None
+                )
+                departement = (
+                    row[idx_departement]
+                    if idx_departement is not None and idx_departement < len(row)
+                    else None
+                )
                 sous_pref = row[idx_sous_pref] if idx_sous_pref < len(row) else None
                 localite = row[idx_localite] if idx_localite < len(row) else None
-                type_localite = row[idx_type_localite] if idx_type_localite is not None and idx_type_localite < len(row) else None
+                type_localite = (
+                    row[idx_type_localite]
+                    if idx_type_localite is not None and idx_type_localite < len(row)
+                    else None
+                )
                 lat = row[idx_lat] if idx_lat is not None and idx_lat < len(row) else None
                 lon = row[idx_lon] if idx_lon is not None and idx_lon < len(row) else None
-                population = row[idx_population] if idx_population is not None and idx_population < len(row) else None
+                population = (
+                    row[idx_population]
+                    if idx_population is not None and idx_population < len(row)
+                    else None
+                )
 
                 if not sous_pref or not localite:
                     nb_erreurs += 1
@@ -295,20 +320,28 @@ def importer_localites(
                 region_node = None
                 if region:
                     region_node = _get_or_create_ref_geo(
-                        db, "region", str(region).strip(),
+                        db,
+                        "region",
+                        str(region).strip(),
                         parent_id=district_defaut.id_geo,
                     )
 
                 dept_node = None
                 if departement:
                     dept_node = _get_or_create_ref_geo(
-                        db, "departement", str(departement).strip(),
+                        db,
+                        "departement",
+                        str(departement).strip(),
                         parent_id=region_node.id_geo if region_node else district_defaut.id_geo,
                     )
 
                 sous_pref_node = _get_or_create_ref_geo(
-                    db, "sous_prefecture", str(sous_pref).strip(),
-                    parent_id=dept_node.id_geo if dept_node else (region_node.id_geo if region_node else district_defaut.id_geo),
+                    db,
+                    "sous_prefecture",
+                    str(sous_pref).strip(),
+                    parent_id=dept_node.id_geo
+                    if dept_node
+                    else (region_node.id_geo if region_node else district_defaut.id_geo),
                 )
 
                 type_loc = None
@@ -322,7 +355,9 @@ def importer_localites(
                         type_loc = "autre"
 
                 localite_node = _get_or_create_ref_geo(
-                    db, "localite", str(localite).strip(),
+                    db,
+                    "localite",
+                    str(localite).strip(),
                     parent_id=sous_pref_node.id_geo,
                     type_localite=type_loc,
                 )

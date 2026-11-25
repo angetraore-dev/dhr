@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Upload, Play, FileSpreadsheet } from 'lucide-react'
-import { api, type Fichier } from '@/lib/api'
+import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { UploadDialog } from '@/components/UploadDialog'
@@ -20,7 +20,7 @@ export default function Fichiers() {
     })
 
     const lancerRunMutation = useMutation({
-        mutationFn: (idFichier: number) => api.lancerRun(idFichier, 'complet'),
+        mutationFn: (idFichier: number) => api.lancerRun(idFichier, { mode: 'complet' }),
         onSuccess: (res, idFichier) => {
             toast.success(`Run ${res.id_run} lancé pour le fichier ${idFichier}`)
             setRunsActifs((prev) => ({ ...prev, [idFichier]: res.id_run }))

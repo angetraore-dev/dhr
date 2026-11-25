@@ -1,1 +1,1 @@
-"""Routers FastAPI par tag OpenAPI """
+"""Routers FastAPI par tag OpenAPI"""

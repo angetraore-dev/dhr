@@ -4,6 +4,7 @@ Usage :
   docker compose exec backend python -u /app/scripts/import_referentiels.py /app/tests/fixtures/Forage.xlsx
   docker compose exec backend python -u /app/scripts/import_referentiels.py /app/tests/fixtures/fichier1.xlsx --feuille Localités
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,8 +21,12 @@ from app.services.import_localites import importer_localites
 def main() -> None:
     parser = argparse.ArgumentParser(description="Import des localités dans le référentiel DHR.")
     parser.add_argument("chemin", type=str, help="Chemin vers le fichier Excel")
-    parser.add_argument("--feuille", type=str, default=None, help="Nom de la feuille (auto-détecté si omis)")
-    parser.add_argument("--header-row", type=int, default=None, help="Ligne d'entête (auto-détectée si omise)")
+    parser.add_argument(
+        "--feuille", type=str, default=None, help="Nom de la feuille (auto-détecté si omis)"
+    )
+    parser.add_argument(
+        "--header-row", type=int, default=None, help="Ligne d'entête (auto-détectée si omise)"
+    )
     args = parser.parse_args()
 
     db = SessionLocal()

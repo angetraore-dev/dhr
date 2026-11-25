@@ -11,6 +11,7 @@ Formats supportés :
 
 Retourne (lat_decimal, lon_decimal) ou (None, None) si invalide.
 """
+
 from __future__ import annotations
 
 import re
@@ -75,13 +76,19 @@ def parser_une_coordonnee(brut: Any, est_latitude: bool) -> float | None:
         sec = int(s[4:6])
         if min_ < 60 and sec < 60:
             val = _dms_to_decimal(deg, min_, sec)
-            return val if (est_latitude and _is_valid_lat(val)) or (not est_latitude and _is_valid_lon(val)) else None
+            return (
+                val
+                if (est_latitude and _is_valid_lat(val))
+                or (not est_latitude and _is_valid_lon(val))
+                else None
+            )
         return None
 
     # --- Cas 2 : DMS explicite (7°52'25"N / 7° 52' 25.5" S / 8°2'20,93"W) ---
     m = re.match(
         r"^\s*(-?\d+)[°\s]+(\d+)[\'\s]+([\d.,]+)[\"\s]*([NSEW])?\s*$",
-        s, re.IGNORECASE,
+        s,
+        re.IGNORECASE,
     )
     if m:
         try:
@@ -94,7 +101,12 @@ def parser_une_coordonnee(brut: Any, est_latitude: bool) -> float | None:
             val = _dms_to_decimal(abs(deg), min_, sec, direction)
             if deg < 0:
                 val = -val
-            return val if (est_latitude and _is_valid_lat(val)) or (not est_latitude and _is_valid_lon(val)) else None
+            return (
+                val
+                if (est_latitude and _is_valid_lat(val))
+                or (not est_latitude and _is_valid_lon(val))
+                else None
+            )
         except (ValueError, TypeError):
             return None
 
@@ -107,12 +119,20 @@ def parser_une_coordonnee(brut: Any, est_latitude: bool) -> float | None:
             return None
         if direction in ("S", "W"):
             val = -abs(val)
-        return val if (est_latitude and _is_valid_lat(val)) or (not est_latitude and _is_valid_lon(val)) else None
+        return (
+            val
+            if (est_latitude and _is_valid_lat(val)) or (not est_latitude and _is_valid_lon(val))
+            else None
+        )
 
     # --- Cas 4 : Décimal simple (6.3658183 ou 6,3658183) ---
     val = _to_float(s)
     if val is not None:
-        return val if (est_latitude and _is_valid_lat(val)) or (not est_latitude and _is_valid_lon(val)) else None
+        return (
+            val
+            if (est_latitude and _is_valid_lat(val)) or (not est_latitude and _is_valid_lon(val))
+            else None
+        )
 
     return None
 

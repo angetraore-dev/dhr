@@ -5,6 +5,7 @@ Configuration de la base de données.
 - Session factory
 - Dépendance FastAPI get_db
 """
+
 from collections.abc import Generator
 
 from sqlalchemy import create_engine, text
@@ -39,6 +40,7 @@ SessionLocal = sessionmaker(
 # --- Base déclarative ---
 class Base(DeclarativeBase):
     """Base déclarative SQLAlchemy 2.x pour tous les modèles."""
+
     pass
 
 

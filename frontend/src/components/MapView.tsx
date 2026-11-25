@@ -2,20 +2,49 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import type { FeatureCollection } from '@/lib/api'
 
+export type MapMode = 'tous' | 'fichier'
+export type SousMode = 'brut' | 'ouvrages'
+
 interface Props {
     data: FeatureCollection | null
     height?: string
+    mode?: MapMode
+    sousMode?: SousMode
 }
 
+// Palette mode Tous / Fichier+ouvrages (couleur = alimentation)
 const TYPE_COLORS: Record<string, string> = {
-    PMH: '#2563eb',   // bleu
-    HVA: '#16a34a',   // vert
-    PEA: '#ea580c',   // orange
-    HV: '#9333ea',    // violet
+    PMH: '#2563eb', // bleu
+    HVA: '#16a34a', // vert
+    PEA: '#ea580c', // orange
+    HV: '#9333ea', // violet
     AUTRE: '#6b7280', // gris
 }
 
-function getColor(type: string | undefined): string {
+// Palette mode Fichier+brut (couleur = qualité)
+const QUALITE_COLORS: Record<string, string> = {
+    ok: '#16a34a', // vert
+    localite_non_resolue: '#f59e0b', // ambre
+    geom_invalide: '#dc2626', // rouge
+    type_ouvrage_inconnu: '#9333ea', // violet
+    doublon_suspect: '#eab308', // jaune
+    rejete: '#6b7280', // gris (jamais affiché, mais sécurité)
+}
+
+function isBrutMode(mode: MapMode, sousMode: SousMode): boolean {
+    return mode === 'fichier' && sousMode === 'brut'
+}
+
+function getColor(
+    mode: MapMode,
+    sousMode: SousMode,
+    props: Record<string, unknown>,
+): string {
+    if (isBrutMode(mode, sousMode)) {
+        const statut = props.statut_qualite as string | undefined
+        return QUALITE_COLORS[statut || ''] || '#6b7280'
+    }
+    const type = props.type_alimentation as string | undefined
     return TYPE_COLORS[type || 'AUTRE'] || TYPE_COLORS.AUTRE
 }
 
@@ -27,52 +56,108 @@ function _escape(str: unknown): string {
         .replace(/>/g, '&gt;')
 }
 
-function buildPopupHtml(p: Record<string, any>): string {
+function _renderDetails(
+    title: string,
+    obj: Record<string, unknown> | undefined | null,
+): string {
+    if (!obj) return ''
+    const entries = Object.entries(obj).filter(
+        ([, v]) => v !== null && v !== undefined && String(v).trim() !== '',
+    )
+    if (entries.length === 0) return ''
+    const rows = entries
+        .map(
+            ([k, v]) =>
+                `<tr>
+           <td style="font-weight:500;padding-right:8px;vertical-align:top;color:#374151;">${_escape(k)}</td>
+           <td style="color:#111827;">${_escape(v)}</td>
+         </tr>`,
+        )
+        .join('')
+    return `
+    <details style="margin-top:8px;">
+      <summary style="cursor:pointer;color:#2563eb;font-size:12px;font-weight:500;user-select:none;">
+        ${_escape(title)} (${entries.length})
+      </summary>
+      <table style="font-size:12px;margin-top:6px;border-collapse:collapse;">
+        ${rows}
+      </table>
+    </details>`
+}
+
+function buildPopupHtml(
+    p: Record<string, unknown>,
+    mode: MapMode,
+    sousMode: SousMode,
+): string {
     const mainLines: string[] = []
 
-    if (p.type_alimentation) mainLines.push(`<b>${_escape(p.type_alimentation)}</b>`)
-    if (p.nature_ouvrage) mainLines.push(`Nature : ${_escape(p.nature_ouvrage)}`)
-    if (p.realisation_par) mainLines.push(`Réalisation : ${_escape(p.realisation_par)}`)
-    if (p.etat) mainLines.push(`État : ${_escape(p.etat)}`)
-    if (p.localite) mainLines.push(`Localité : ${_escape(p.localite)}`)
-    if (p.code_ouvrage) mainLines.push(`Code : ${_escape(p.code_ouvrage)}`)
-    if (p.annee_realisation) mainLines.push(`Année : ${_escape(p.annee_realisation)}`)
-    if (p.statut_qualite) mainLines.push(`Qualité : ${_escape(p.statut_qualite)}`)
+    if (isBrutMode(mode, sousMode)) {
+        // Mode Fichier + brut : on affiche le brut + le statut qualité
+        if (p.statut_qualite)
+            mainLines.push(`<b>${_escape(p.statut_qualite)}</b>`)
+        if (p.nom_feuille) mainLines.push(`Feuille : ${_escape(p.nom_feuille)}`)
+        if (p.num_ligne_source)
+            mainLines.push(`Ligne Excel : #${_escape(p.num_ligne_source)}`)
+        if (p.type_ouvrage_brut)
+            mainLines.push(`Type brut : ${_escape(p.type_ouvrage_brut)}`)
+        if (p.etat_ouvrage_brut)
+            mainLines.push(`État brut : ${_escape(p.etat_ouvrage_brut)}`)
+        if (p.bailleur_brut)
+            mainLines.push(`Bailleur brut : ${_escape(p.bailleur_brut)}`)
+    } else {
+        // Mode Tous OU Fichier+ouvrages : métier consolidé
+        if (p.type_alimentation)
+            mainLines.push(`<b>${_escape(p.type_alimentation)}</b>`)
+        if (p.nature_ouvrage)
+            mainLines.push(`Nature : ${_escape(p.nature_ouvrage)}`)
+        if (p.realisation_par)
+            mainLines.push(`Réalisation : ${_escape(p.realisation_par)}`)
+        if (p.etat) mainLines.push(`État : ${_escape(p.etat)}`)
+        if (p.localite) mainLines.push(`Localité : ${_escape(p.localite)}`)
+        if (p.code_ouvrage) mainLines.push(`Code : ${_escape(p.code_ouvrage)}`)
+        if (p.annee_realisation)
+            mainLines.push(`Année : ${_escape(p.annee_realisation)}`)
+    }
 
     let html = mainLines.join('<br/>')
 
-    const meta = p.metadata as Record<string, unknown> | undefined
-    if (meta && Object.keys(meta).length > 0) {
-        const rows = Object.entries(meta)
-            .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
-            .map(
-                ([k, v]) =>
-                    `<tr>
-             <td style="font-weight:500;padding-right:8px;vertical-align:top;color:#374151;">${_escape(k)}</td>
-             <td style="color:#111827;">${_escape(v)}</td>
-           </tr>`,
-            )
-            .join('')
-
-        html += `
-      <details style="margin-top:8px;">
-        <summary style="cursor:pointer;color:#2563eb;font-size:12px;font-weight:500;user-select:none;">
-          Détails (${Object.keys(meta).length})
-        </summary>
-        <table style="font-size:12px;margin-top:6px;border-collapse:collapse;">
-          ${rows}
-        </table>
-      </details>
-    `
+    // Détails metadata (mode Tous OU Fichier+ouvrages)
+    if (!isBrutMode(mode, sousMode)) {
+        const details = p.details as
+            | Record<string, Record<string, unknown>>
+            | undefined
+        if (details) {
+            html += _renderDetails('Donnée Ouvrage', details.ouvrage)
+            html += _renderDetails('Donnée Localité', details.localite)
+            html += _renderDetails('Info CGPE', details.cgpe)
+        }
+        html += _renderDetails(
+            "Qualité de l'eau",
+            p.qualite_eau as Record<string, unknown> | undefined,
+        )
     }
 
     return html
 }
 
-export function MapView({ data, height = '600px' }: Props) {
+export function MapView({
+                            data,
+                            height = '600px',
+                            mode = 'tous',
+                            sousMode = 'brut',
+                        }: Props) {
     const containerRef = useRef<HTMLDivElement>(null)
     const mapRef = useRef<L.Map | null>(null)
     const layerRef = useRef<L.GeoJSON | null>(null)
+    const modeRef = useRef<MapMode>(mode)
+    const sousModeRef = useRef<SousMode>(sousMode)
+
+    // Mise à jour des refs quand les props changent
+    useEffect(() => {
+        modeRef.current = mode
+        sousModeRef.current = sousMode
+    }, [mode, sousMode])
 
     useEffect(() => {
         if (!containerRef.current || mapRef.current) return
@@ -102,12 +187,18 @@ export function MapView({ data, height = '600px' }: Props) {
 
         layerRef.current = L.geoJSON(undefined, {
             pointToLayer: (feature, latlng) => {
-                const type = feature.properties?.type_alimentation
-                const nature = feature.properties?.nature_ouvrage
-                const color = getColor(type)
+                const props = (feature.properties || {}) as Record<
+                    string,
+                    unknown
+                >
+                const color = getColor(
+                    modeRef.current,
+                    sousModeRef.current,
+                    props,
+                )
 
-                if (nature === 'puits') {
-                    // Carré pour les puits
+                // Mode Fichier + brut : tout en cercle
+                if (isBrutMode(modeRef.current, sousModeRef.current)) {
                     return L.circleMarker(latlng, {
                         radius: 6,
                         fillColor: color,
@@ -115,14 +206,35 @@ export function MapView({ data, height = '600px' }: Props) {
                         weight: 1.5,
                         opacity: 1,
                         fillOpacity: 0.9,
-                        // On utilise un cercle mais on pourrait aussi utiliser un carré
-                        // ou une icône différente. Pour le MVP, on garde un cercle mais
-                        // on pourrait mettre un liseré plus épais.
-                        dashArray: '3,3'
                     })
                 }
 
-                // Cercle plein pour les forages
+                // Mode Tous OU Fichier+ouvrages : formes selon la nature
+                const nature = props.nature_ouvrage
+
+                if (nature === 'puits') {
+                    return L.marker(latlng, {
+                        icon: L.divIcon({
+                            className: 'dhr-marker',
+                            html: `<svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="12" height="12" fill="${color}" stroke="#ffffff" stroke-width="1.5"/></svg>`,
+                            iconSize: [14, 14],
+                            iconAnchor: [7, 7],
+                        }),
+                    })
+                }
+
+                if (nature === 'inconnu') {
+                    return L.marker(latlng, {
+                        icon: L.divIcon({
+                            className: 'dhr-marker',
+                            html: `<svg width="14" height="14" viewBox="0 0 14 14"><polygon points="7,1 13,7 7,13 1,7" fill="${color}" stroke="#ffffff" stroke-width="1.5"/></svg>`,
+                            iconSize: [14, 14],
+                            iconAnchor: [7, 7],
+                        }),
+                    })
+                }
+
+                // Forage (défaut)
                 return L.circleMarker(latlng, {
                     radius: 6,
                     fillColor: color,
@@ -133,8 +245,15 @@ export function MapView({ data, height = '600px' }: Props) {
                 })
             },
             onEachFeature: (feature, layer) => {
-                const p = (feature.properties || {}) as Record<string, any>
-                layer.bindPopup(buildPopupHtml(p), { maxWidth: 320 })
+                const p = (feature.properties || {}) as Record<string, unknown>
+                layer.bindPopup(
+                    buildPopupHtml(
+                        p,
+                        modeRef.current,
+                        sousModeRef.current,
+                    ),
+                    { maxWidth: 320 },
+                )
             },
         }).addTo(map)
 
@@ -145,14 +264,29 @@ export function MapView({ data, height = '600px' }: Props) {
         }
     }, [])
 
+    // Mise à jour des données
     useEffect(() => {
         if (!mapRef.current || !layerRef.current) return
 
         layerRef.current.clearLayers()
         if (data) {
-            layerRef.current.addData(data as any)
+            layerRef.current.addData(data as never)
         }
     }, [data])
 
-    return <div ref={containerRef} style={{ height }} className="rounded-lg border" />
+    // Mise à jour du mode / sous-mode : on force un re-render des couches
+    useEffect(() => {
+        if (!layerRef.current || !data) return
+
+        layerRef.current.clearLayers()
+        layerRef.current.addData(data as never)
+    }, [mode, sousMode, data])
+
+    return (
+        <div
+            ref={containerRef}
+            style={{ height }}
+            className="rounded-lg border"
+        />
+    )
 }

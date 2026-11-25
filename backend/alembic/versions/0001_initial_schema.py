@@ -10,6 +10,7 @@ Create Date: 2026-11-10
 Point de non-retour : une fois cette migration appliquée et la base recréée,
 on ne revient pas aux anciennes migrations. Voir Bible § 2.1.6 et ADR-018.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -115,8 +116,12 @@ def upgrade() -> None:
         sa.Column("type_source", sa.String(length=30), nullable=False),
         sa.Column("actif", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("commentaire", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "type_source IN ('public','prive','bailleur','etat','autre')",
             name="source_type_source_check",
@@ -132,8 +137,12 @@ def upgrade() -> None:
         sa.Column("parent_id", sa.Integer(), nullable=True),
         sa.Column("code_officiel", sa.String(length=50), nullable=True),
         sa.Column("type_localite", sa.String(length=20), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "niveau IN ('district','region','departement','sous_prefecture','localite')",
             name="ref_geo_admin_niveau_check",
@@ -153,15 +162,15 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("parent_id", "nom", "niveau", name="uq_ref_geo_parent_nom_niveau"),
         sa.ForeignKeyConstraint(
-            ["parent_id"], ["ref_geo_admin.id_geo"],
-            name="ref_geo_admin_parent_id_fkey", ondelete="RESTRICT",
+            ["parent_id"],
+            ["ref_geo_admin.id_geo"],
+            name="ref_geo_admin_parent_id_fkey",
+            ondelete="RESTRICT",
         ),
     )
     op.create_index("idx_ref_geo_niveau", "ref_geo_admin", ["niveau"])
     op.create_index("idx_ref_geo_parent", "ref_geo_admin", ["parent_id"])
-    op.execute(
-        "CREATE INDEX idx_ref_geo_nom_trgm ON ref_geo_admin USING gin (nom gin_trgm_ops)"
-    )
+    op.execute("CREATE INDEX idx_ref_geo_nom_trgm ON ref_geo_admin USING gin (nom gin_trgm_ops)")
 
     op.create_table(
         "localite",
@@ -172,15 +181,23 @@ def upgrade() -> None:
         sa.Column("longitude_centre", sa.Float(), nullable=True),
         sa.Column("commentaire", sa.Text(), nullable=True),
         sa.Column(
-            "metadata", postgresql.JSONB(), nullable=False,
+            "metadata",
+            postgresql.JSONB(),
+            nullable=False,
             server_default=sa.text("'{}'::jsonb"),
         ),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         # geom_centre : colonne générée, ajoutée en SQL brut après create_table
         sa.ForeignKeyConstraint(
-            ["id_geo"], ["ref_geo_admin.id_geo"],
-            name="localite_id_geo_fkey", ondelete="RESTRICT",
+            ["id_geo"],
+            ["ref_geo_admin.id_geo"],
+            name="localite_id_geo_fkey",
+            ondelete="RESTRICT",
         ),
     )
     op.execute(
@@ -200,8 +217,10 @@ def upgrade() -> None:
         sa.Column("source_alias", sa.String(length=100), nullable=True),
         sa.UniqueConstraint("id_localite", "alias", name="uq_alias_localite"),
         sa.ForeignKeyConstraint(
-            ["id_localite"], ["localite.id_localite"],
-            name="localite_alias_id_localite_fkey", ondelete="CASCADE",
+            ["id_localite"],
+            ["localite.id_localite"],
+            name="localite_alias_id_localite_fkey",
+            ondelete="CASCADE",
         ),
     )
     op.execute("CREATE INDEX idx_alias_trgm ON localite_alias USING gin (alias gin_trgm_ops)")
@@ -217,22 +236,35 @@ def upgrade() -> None:
         sa.Column("chemin_stockage", sa.Text(), nullable=False),
         sa.Column("hash_sha256", sa.String(length=64), nullable=True),
         sa.Column("taille_octets", sa.BigInteger(), nullable=True),
-        sa.Column("date_reception", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "date_reception",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.Column("date_ingestion", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("statut", sa.String(length=20), nullable=False, server_default=sa.text("'en_attente'")),
+        sa.Column(
+            "statut", sa.String(length=20), nullable=False, server_default=sa.text("'en_attente'")
+        ),
         sa.Column("nb_feuilles", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("nb_lignes_total", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("est_reingestion", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("commentaire", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "statut IN ('en_attente','en_cours','ingere','partiel','erreur')",
             name="fichier_statut_check",
         ),
         sa.ForeignKeyConstraint(
-            ["id_source"], ["source.id_source"],
-            name="fichier_id_source_fkey", ondelete="RESTRICT",
+            ["id_source"],
+            ["source.id_source"],
+            name="fichier_id_source_fkey",
+            ondelete="RESTRICT",
         ),
     )
     op.create_index("idx_fichier_source", "fichier", ["id_source"])
@@ -245,12 +277,24 @@ def upgrade() -> None:
         sa.Column("id_fichier", sa.BigInteger(), nullable=False),
         sa.Column("nom_feuille", sa.String(length=150), nullable=False),
         sa.Column("index_feuille", sa.Integer(), nullable=False),
-        sa.Column("type_contenu", sa.String(length=20), nullable=False, server_default=sa.text("'inconnu'")),
+        sa.Column(
+            "type_contenu",
+            sa.String(length=20),
+            nullable=False,
+            server_default=sa.text("'inconnu'"),
+        ),
         sa.Column("nb_lignes", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("nb_lignes_valides", sa.Integer(), nullable=False, server_default=sa.text("0")),
-        sa.Column("statut_ingestion", sa.String(length=20), nullable=False, server_default=sa.text("'en_attente'")),
+        sa.Column(
+            "statut_ingestion",
+            sa.String(length=20),
+            nullable=False,
+            server_default=sa.text("'en_attente'"),
+        ),
         sa.Column("message_erreur", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "type_contenu IN ('ouvrages','cgpe','mixte','autre','inconnu')",
             name="feuille_type_contenu_check",
@@ -261,8 +305,10 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("id_fichier", "index_feuille", name="uq_feuille_fichier_index"),
         sa.ForeignKeyConstraint(
-            ["id_fichier"], ["fichier.id_fichier"],
-            name="feuille_id_fichier_fkey", ondelete="CASCADE",
+            ["id_fichier"],
+            ["fichier.id_fichier"],
+            name="feuille_id_fichier_fkey",
+            ondelete="CASCADE",
         ),
     )
     op.create_index("idx_feuille_fichier", "feuille", ["id_fichier"])
@@ -274,16 +320,22 @@ def upgrade() -> None:
         sa.Column("entete_brut", sa.String(length=255), nullable=False),
         sa.Column("champ_cible", sa.String(length=100), nullable=True),
         sa.Column("confiance", sa.Numeric(3, 2), nullable=True),
-        sa.Column("valide_par_utilisateur", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "valide_par_utilisateur", sa.Boolean(), nullable=False, server_default=sa.text("false")
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "confiance IS NULL OR (confiance >= 0 AND confiance <= 1)",
             name="mapping_feuille_confiance_check",
         ),
         sa.UniqueConstraint("id_feuille", "entete_brut", name="uq_mapping_feuille_entete"),
         sa.ForeignKeyConstraint(
-            ["id_feuille"], ["feuille.id_feuille"],
-            name="mapping_feuille_id_feuille_fkey", ondelete="CASCADE",
+            ["id_feuille"],
+            ["feuille.id_feuille"],
+            name="mapping_feuille_id_feuille_fkey",
+            ondelete="CASCADE",
         ),
     )
     op.create_index("idx_mapping_feuille_feuille", "mapping_feuille", ["id_feuille"])
@@ -293,14 +345,20 @@ def upgrade() -> None:
         sa.Column("id_run", sa.BigInteger(), primary_key=True, autoincrement=True),
         sa.Column("id_fichier", sa.BigInteger(), nullable=False),
         sa.Column("id_feuille", sa.BigInteger(), nullable=True),
-        sa.Column("mode", sa.String(length=20), nullable=False, server_default=sa.text("'complet'")),
+        sa.Column(
+            "mode", sa.String(length=20), nullable=False, server_default=sa.text("'complet'")
+        ),
         sa.Column("limite_lignes", sa.Integer(), nullable=True),
         sa.Column("ligne_debut", sa.Integer(), nullable=True),
         sa.Column("ligne_fin", sa.Integer(), nullable=True),
         sa.Column("nb_lignes_ingerees", sa.Integer(), nullable=False, server_default=sa.text("0")),
-        sa.Column("statut", sa.String(length=20), nullable=False, server_default=sa.text("'en_cours'")),
+        sa.Column(
+            "statut", sa.String(length=20), nullable=False, server_default=sa.text("'en_cours'")
+        ),
         sa.Column("message", sa.Text(), nullable=True),
-        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "started_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint(
             "mode IN ('complet','echantillon','plage')",
@@ -318,12 +376,16 @@ def upgrade() -> None:
             name="chk_run_mode_params",
         ),
         sa.ForeignKeyConstraint(
-            ["id_fichier"], ["fichier.id_fichier"],
-            name="ingestion_run_id_fichier_fkey", ondelete="CASCADE",
+            ["id_fichier"],
+            ["fichier.id_fichier"],
+            name="ingestion_run_id_fichier_fkey",
+            ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["id_feuille"], ["feuille.id_feuille"],
-            name="ingestion_run_id_feuille_fkey", ondelete="CASCADE",
+            ["id_feuille"],
+            ["feuille.id_feuille"],
+            name="ingestion_run_id_feuille_fkey",
+            ondelete="CASCADE",
         ),
     )
     op.create_index("idx_run_fichier", "ingestion_run", ["id_fichier"])
@@ -355,29 +417,41 @@ def upgrade() -> None:
         sa.Column("type_financement_brut", sa.String(length=50), nullable=True),
         sa.Column("usage_ouvrage_brut", sa.String(length=50), nullable=True),
         sa.Column("a_cgpe", sa.Boolean(), nullable=True),
-        sa.Column("statut_qualite", sa.String(length=30), nullable=False, server_default=sa.text("'ok'")),
+        sa.Column(
+            "statut_qualite", sa.String(length=30), nullable=False, server_default=sa.text("'ok'")
+        ),
         sa.Column("message_qualite", sa.Text(), nullable=True),
         sa.Column("id_localite", sa.Integer(), nullable=True),
         sa.Column("id_ouvrage_consolide", sa.BigInteger(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         # geom : colonne générée, ajoutée en SQL brut
         sa.CheckConstraint(
             "statut_qualite IN ('ok','localite_non_resolue','geom_invalide',"
             "'type_ouvrage_inconnu','rejete','doublon_suspect')",
             name="ligne_ingeree_statut_qualite_check",
         ),
-        sa.UniqueConstraint("id_feuille", "id_run", "num_ligne_source", name="uq_ligne_feuille_run_num"),
-        sa.ForeignKeyConstraint(
-            ["id_feuille"], ["feuille.id_feuille"],
-            name="ligne_ingeree_id_feuille_fkey", ondelete="CASCADE",
+        sa.UniqueConstraint(
+            "id_feuille", "id_run", "num_ligne_source", name="uq_ligne_feuille_run_num"
         ),
         sa.ForeignKeyConstraint(
-            ["id_run"], ["ingestion_run.id_run"],
-            name="ligne_ingeree_id_run_fkey", ondelete="SET NULL",
+            ["id_feuille"],
+            ["feuille.id_feuille"],
+            name="ligne_ingeree_id_feuille_fkey",
+            ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["id_localite"], ["localite.id_localite"],
-            name="ligne_ingeree_id_localite_fkey", ondelete="SET NULL",
+            ["id_run"],
+            ["ingestion_run.id_run"],
+            name="ligne_ingeree_id_run_fkey",
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(
+            ["id_localite"],
+            ["localite.id_localite"],
+            name="ligne_ingeree_id_localite_fkey",
+            ondelete="SET NULL",
         ),
         # FK id_ouvrage_consolide ajoutée après ouvrage
     )
@@ -406,15 +480,23 @@ def upgrade() -> None:
         sa.Column("nature_ouvrage", sa.String(length=20), nullable=True),
         sa.Column("type_alimentation", sa.String(length=20), nullable=True),
         sa.Column("realisation_par", sa.String(length=20), nullable=True),
-        sa.Column("etat", sa.String(length=20), nullable=False, server_default=sa.text("'inconnu'")),
+        sa.Column(
+            "etat", sa.String(length=20), nullable=False, server_default=sa.text("'inconnu'")
+        ),
         sa.Column("annee_realisation", sa.Integer(), nullable=True),
         sa.Column("latitude_decimal", sa.Float(), nullable=True),
         sa.Column("longitude_decimal", sa.Float(), nullable=True),
         sa.Column("commentaire", sa.Text(), nullable=True),
-        sa.Column("metadata", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column(
+            "metadata", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")
+        ),
         sa.Column("qualite_eau", postgresql.JSONB(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         # geom : colonne générée
         sa.CheckConstraint(
             "nature_ouvrage IS NULL OR nature_ouvrage IN ('puits','forage','inconnu')",
@@ -433,8 +515,10 @@ def upgrade() -> None:
             name="ouvrage_etat_check",
         ),
         sa.ForeignKeyConstraint(
-            ["id_localite"], ["localite.id_localite"],
-            name="ouvrage_id_localite_fkey", ondelete="RESTRICT",
+            ["id_localite"],
+            ["localite.id_localite"],
+            name="ouvrage_id_localite_fkey",
+            ondelete="RESTRICT",
         ),
     )
     op.execute(
@@ -442,7 +526,9 @@ def upgrade() -> None:
         "GENERATED ALWAYS AS (geom_from_latlon(latitude_decimal, longitude_decimal)) STORED"
     )
     op.create_index(
-        "idx_ouvrage_code", "ouvrage", ["code_ouvrage"],
+        "idx_ouvrage_code",
+        "ouvrage",
+        ["code_ouvrage"],
         postgresql_where=sa.text("code_ouvrage IS NOT NULL"),
     )
     op.create_index("idx_ouvrage_localite", "ouvrage", ["id_localite"])
@@ -457,8 +543,10 @@ def upgrade() -> None:
     # Ajout de la FK ligne_ingeree.id_ouvrage_consolide (ouvrage existe maintenant)
     op.create_foreign_key(
         "ligne_ingeree_id_ouvrage_consolide_fkey",
-        "ligne_ingeree", "ouvrage",
-        ["id_ouvrage_consolide"], ["id_ouvrage"],
+        "ligne_ingeree",
+        "ouvrage",
+        ["id_ouvrage_consolide"],
+        ["id_ouvrage"],
         ondelete="SET NULL",
     )
 
@@ -472,20 +560,30 @@ def upgrade() -> None:
         sa.Column("statut", sa.String(length=20), nullable=True),
         sa.Column("nb_membres", sa.Integer(), nullable=True),
         sa.Column("commentaire", sa.Text(), nullable=True),
-        sa.Column("metadata", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "metadata", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "statut IS NULL OR statut IN ('fonctionnel','non_fonctionnel','inconnu')",
             name="cgpe_statut_check",
         ),
         sa.ForeignKeyConstraint(
-            ["id_localite"], ["localite.id_localite"],
-            name="cgpe_id_localite_fkey", ondelete="CASCADE",
+            ["id_localite"],
+            ["localite.id_localite"],
+            name="cgpe_id_localite_fkey",
+            ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["id_ouvrage"], ["ouvrage.id_ouvrage"],
-            name="cgpe_id_ouvrage_fkey", ondelete="SET NULL",
+            ["id_ouvrage"],
+            ["ouvrage.id_ouvrage"],
+            name="cgpe_id_ouvrage_fkey",
+            ondelete="SET NULL",
         ),
     )
     op.create_index("idx_cgpe_localite", "cgpe", ["id_localite"])
@@ -502,15 +600,21 @@ def upgrade() -> None:
         sa.Column("montant", sa.Numeric(18, 2), nullable=True),
         sa.Column("devise", sa.String(length=3), server_default=sa.text("'XOF'")),
         sa.Column("commentaire", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.CheckConstraint(
             "type_financement IN ('etat','prive','partenariat','inconnu')",
             name="projet_financement_type_check",
         ),
         sa.ForeignKeyConstraint(
-            ["id_source_financeur"], ["source.id_source"],
-            name="projet_financement_id_source_financeur_fkey", ondelete="RESTRICT",
+            ["id_source_financeur"],
+            ["source.id_source"],
+            name="projet_financement_id_source_financeur_fkey",
+            ondelete="RESTRICT",
         ),
     )
     op.create_index("idx_projet_annee", "projet_financement", ["annee"])
@@ -520,19 +624,28 @@ def upgrade() -> None:
         "ouvrage_projet",
         sa.Column("id_ouvrage", sa.BigInteger(), nullable=False),
         sa.Column("id_projet", sa.BigInteger(), nullable=False),
-        sa.Column("role_financement", sa.String(length=20), nullable=False, server_default=sa.text("'principal'")),
+        sa.Column(
+            "role_financement",
+            sa.String(length=20),
+            nullable=False,
+            server_default=sa.text("'principal'"),
+        ),
         sa.PrimaryKeyConstraint("id_ouvrage", "id_projet"),
         sa.CheckConstraint(
             "role_financement IN ('principal','co_financement')",
             name="ouvrage_projet_role_check",
         ),
         sa.ForeignKeyConstraint(
-            ["id_ouvrage"], ["ouvrage.id_ouvrage"],
-            name="ouvrage_projet_id_ouvrage_fkey", ondelete="CASCADE",
+            ["id_ouvrage"],
+            ["ouvrage.id_ouvrage"],
+            name="ouvrage_projet_id_ouvrage_fkey",
+            ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["id_projet"], ["projet_financement.id_projet"],
-            name="ouvrage_projet_id_projet_fkey", ondelete="CASCADE",
+            ["id_projet"],
+            ["projet_financement.id_projet"],
+            name="ouvrage_projet_id_projet_fkey",
+            ondelete="CASCADE",
         ),
     )
     op.create_index("idx_ouvrage_projet_projet", "ouvrage_projet", ["id_projet"])
@@ -541,8 +654,13 @@ def upgrade() -> None:
     # 6. TRIGGERS
     # -----------------------------------------------------------------
     for table in (
-        "source", "ref_geo_admin", "localite", "fichier",
-        "ouvrage", "cgpe", "projet_financement",
+        "source",
+        "ref_geo_admin",
+        "localite",
+        "fichier",
+        "ouvrage",
+        "cgpe",
+        "projet_financement",
     ):
         op.execute(
             f"CREATE TRIGGER set_updated_at BEFORE UPDATE ON {table} "
@@ -672,8 +790,13 @@ def downgrade() -> None:
 
     # Triggers (drop automatique avec les tables, mais on explicite pour clarté)
     for table in (
-        "projet_financement", "cgpe", "ouvrage", "fichier",
-        "localite", "ref_geo_admin", "source",
+        "projet_financement",
+        "cgpe",
+        "ouvrage",
+        "fichier",
+        "localite",
+        "ref_geo_admin",
+        "source",
     ):
         op.execute(f"DROP TRIGGER IF EXISTS set_updated_at ON {table}")
     op.execute("DROP TRIGGER IF EXISTS check_localite_geo ON localite")

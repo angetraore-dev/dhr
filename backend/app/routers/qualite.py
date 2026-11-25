@@ -1,6 +1,7 @@
 """
 Router qualité : tableau de bord d'ingestion par fichier.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -16,6 +17,7 @@ router = APIRouter(
     tags=["Qualité"],
     dependencies=[Depends(require_api_key)],
 )
+
 
 @router.get(
     "/qualite/fichiers/{id}",

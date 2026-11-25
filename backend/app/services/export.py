@@ -15,6 +15,7 @@ Aligné sur la Bible § 4.3.4 et § 5.4.4 :
 - Pas de filtre `district` (réforme territoriale).
 - KPI `par_district` conservé dans la Synthèse (information utile DHR).
 """
+
 from __future__ import annotations
 
 import csv
@@ -26,7 +27,6 @@ from typing import Any
 import xlsxwriter
 from fastapi import HTTPException, status
 from sqlalchemy import exists, func, select, text
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.config import get_settings
@@ -194,8 +194,14 @@ def _apply_common_filters(stmt, filters: dict[str, Any]):
         stmt = stmt.where(
             exists(
                 select(OuvrageProjet.id_ouvrage)
-                .join(ProjetFinancement, ProjetFinancement.id_projet == OuvrageProjet.id_projet)
-                .join(Source, Source.id_source == ProjetFinancement.id_source_financeur)
+                .join(
+                    ProjetFinancement,
+                    ProjetFinancement.id_projet == OuvrageProjet.id_projet,
+                )
+                .join(
+                    Source,
+                    Source.id_source == ProjetFinancement.id_source_financeur,
+                )
                 .where(OuvrageProjet.id_ouvrage == Ouvrage.id_ouvrage)
                 .where(Source.nom == filters["bailleur"])
             )
@@ -206,11 +212,7 @@ def _apply_common_filters(stmt, filters: dict[str, Any]):
 
 def _get_metadata_columns(db: Session, filters: dict[str, Any]) -> list[str]:
     """Récupère exhaustivement toutes les clés JSONB metadata sur les ouvrages filtrés."""
-    stmt = (
-        select(func.jsonb_object_keys(Ouvrage.metadata_))
-        .select_from(Ouvrage)
-        .distinct()
-    )
+    stmt = select(func.jsonb_object_keys(Ouvrage.metadata_)).select_from(Ouvrage).distinct()
     stmt = _apply_common_filters(stmt, filters)
     keys = db.scalars(stmt).all()
     return sorted(f"metadata_{k}" for k in keys)
@@ -271,6 +273,14 @@ def _filename(extension: str) -> str:
     return f"ouvrages_{today}.{extension}"
 
 
+def filename_xlsx() -> str:
+    return _filename("xlsx")
+
+
+def filename_csv() -> str:
+    return _filename("csv")
+
+
 # =====================================================================
 # KPI (Synthèse)
 # =====================================================================
@@ -307,41 +317,53 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
         select(Source.nom, func.count(func.distinct(Ouvrage.id_ouvrage)))
         .select_from(Ouvrage)
         .join(OuvrageProjet, OuvrageProjet.id_ouvrage == Ouvrage.id_ouvrage)
-        .join(ProjetFinancement, ProjetFinancement.id_projet == OuvrageProjet.id_projet)
-        .join(Source, Source.id_source == ProjetFinancement.id_source_financeur)
+        .join(
+            ProjetFinancement,
+            ProjetFinancement.id_projet == OuvrageProjet.id_projet,
+        )
+        .join(
+            Source,
+            Source.id_source == ProjetFinancement.id_source_financeur,
+        )
     )
     stmt = _apply_common_filters(stmt, filters)
-    stmt = stmt.group_by(Source.nom).order_by(
-        func.count(func.distinct(Ouvrage.id_ouvrage)).desc()
-    )
+    stmt = stmt.group_by(Source.nom).order_by(func.count(func.distinct(Ouvrage.id_ouvrage)).desc())
     kpis["par_bailleur"] = dict(db.execute(stmt).all())
 
-    # --- Par district (KPI conservé, pas un filtre UI) ---
+    # --- Par district (CTE récursive SQLAlchemy ORM native) ---
+    base_cte = (
+        select(
+            RefGeoAdmin.id_geo.label("id_geo"),
+            RefGeoAdmin.id_geo.label("district_id"),
+        )
+        .where(RefGeoAdmin.niveau == "district")
+        .cte(name="district_of", recursive=True)
+    )
+    rec_part = select(
+        RefGeoAdmin.id_geo,
+        base_cte.c.district_id,
+    ).join(base_cte, RefGeoAdmin.parent_id == base_cte.c.id_geo)
+    district_cte = base_cte.union_all(rec_part)
+
     filtered_ouvrages_subq = _apply_common_filters(
         select(Ouvrage.id_ouvrage, Ouvrage.id_localite), filters
     ).subquery("filtered_o")
 
-    district_of_sql = """
-        WITH RECURSIVE district_of AS (
-            SELECT id_geo, id_geo AS district_id
-            FROM ref_geo_admin WHERE niveau = 'district'
-            UNION ALL
-            SELECT r.id_geo, d.district_id
-            FROM ref_geo_admin r
-            JOIN district_of d ON r.parent_id = d.id_geo
+    r_district = aliased(RefGeoAdmin)
+    stmt_districts = (
+        select(r_district.nom.label("district"), func.count().label("nb"))
+        .select_from(filtered_ouvrages_subq)
+        .join(
+            Localite,
+            Localite.id_localite == filtered_ouvrages_subq.c.id_localite,
         )
-        SELECT r.nom AS district, COUNT(*) AS nb
-        FROM ({filtered_sql}) o
-        JOIN localite l ON l.id_localite = o.id_localite
-        JOIN district_of d ON d.id_geo = l.id_geo
-        JOIN ref_geo_admin r ON r.id_geo = d.district_id
-        GROUP BY r.nom
-        ORDER BY nb DESC
-    """
-    compiled = filtered_ouvrages_subq.compile(dialect=postgresql.dialect())
-    final_sql = district_of_sql.format(filtered_sql=str(compiled))
-    rows = db.execute(text(final_sql), compiled.params).all()
-    kpis["par_district"] = {r[0]: r[1] for r in rows}
+        .join(district_cte, district_cte.c.id_geo == Localite.id_geo)
+        .join(r_district, r_district.id_geo == district_cte.c.district_id)
+        .group_by(r_district.nom)
+        .order_by(func.count().desc())
+    )
+    rows = db.execute(stmt_districts).all()
+    kpis["par_district"] = {row.district: row.nb for row in rows}
 
     # --- Années ---
     stmt = select(
@@ -356,20 +378,15 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     kpis["annee_moy"] = round(row[2], 1) if row and row[2] is not None else None
 
     # --- Géolocalisation ---
-    stmt = (
-        select(
-            func.count().filter(text("ouvrage.geom IS NOT NULL")),
-            func.count(),
-        )
-        .select_from(Ouvrage)
-    )
+    stmt = select(
+        func.count().filter(text("ouvrage.geom IS NOT NULL")),
+        func.count(),
+    ).select_from(Ouvrage)
     stmt = _apply_common_filters(stmt, filters)
     row = db.execute(stmt).first()
     kpis["geo_avec"] = row[0] if row else 0
     kpis["geo_total"] = row[1] if row else 0
-    kpis["taux_geo"] = round(
-        (row[0] / row[1]) if row and row[1] > 0 else 0.0, 3
-    )
+    kpis["taux_geo"] = round((row[0] / row[1]) if row and row[1] > 0 else 0.0, 3)
 
     # --- CGPE (correction is_(True)) ---
     stmt = (
@@ -384,9 +401,7 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
     row = db.execute(stmt).first()
     kpis["cgpe_fonctionnel"] = row[0] if row else 0
     kpis["cgpe_total"] = row[1] if row else 0
-    kpis["taux_cgpe"] = round(
-        (row[0] / row[1]) if row and row[1] > 0 else 0.0, 3
-    )
+    kpis["taux_cgpe"] = round((row[0] / row[1]) if row and row[1] > 0 else 0.0, 3)
 
     kpis["filtres"] = {k: v for k, v in filters.items() if v is not None}
     return kpis
@@ -395,6 +410,7 @@ def _compute_kpis(db: Session, filters: dict[str, Any]) -> dict[str, Any]:
 def _format_filters(filters: dict[str, Any]) -> str:
     if not filters or all(v is None for v in filters.values()):
         return "Aucun filtre (tous les ouvrages)"
+
     labels = {
         "nature_ouvrage": "Nature",
         "type_alimentation": "Alimentation",
@@ -408,6 +424,7 @@ def _format_filters(filters: dict[str, Any]) -> str:
         "annee_min": "Année ≥",
         "annee_max": "Année ≤",
     }
+
     parts = []
     for key, val in filters.items():
         if val is None:
@@ -422,22 +439,36 @@ def _format_filters(filters: dict[str, Any]) -> str:
 def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -> None:
     ws = workbook.add_worksheet("Synthèse")
 
-    fmt_title = workbook.add_format({
-        "bold": True, "font_size": 14, "font_color": "#FFFFFF",
-        "bg_color": "#2C3E50", "align": "center", "valign": "vcenter",
-    })
-    fmt_section = workbook.add_format({
-        "bold": True, "font_size": 11, "font_color": "#2C3E50",
-        "bg_color": "#D5DBDB",
-    })
-    fmt_header = workbook.add_format({
-        "bold": True, "font_size": 10, "bg_color": "#EBF5FB", "border": 1,
-    })
+    fmt_title = workbook.add_format(
+        {
+            "bold": True,
+            "font_size": 14,
+            "font_color": "#FFFFFF",
+            "bg_color": "#2C3E50",
+            "align": "center",
+            "valign": "vcenter",
+        }
+    )
+    fmt_section = workbook.add_format(
+        {
+            "bold": True,
+            "font_size": 11,
+            "font_color": "#2C3E50",
+            "bg_color": "#D5DBDB",
+        }
+    )
+    fmt_header = workbook.add_format(
+        {
+            "bold": True,
+            "font_size": 10,
+            "bg_color": "#EBF5FB",
+            "border": 1,
+        }
+    )
     fmt_label = workbook.add_format({"font_size": 10})
     fmt_value = workbook.add_format({"bold": True, "font_size": 10})
 
     row = 0
-
     ws.merge_range(row, 0, row, 3, "Export des ouvrages hydrauliques ruraux", fmt_title)
     ws.set_row(row, 24)
     row += 1
@@ -445,21 +476,28 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     ws.write(row, 0, f"Date d'export : {now}", fmt_label)
     row += 1
+
     ws.write(row, 0, f"Filtres : {_format_filters(kpis['filtres'])}", fmt_label)
     row += 2
 
     # Vue d'ensemble
     ws.merge_range(row, 0, row, 3, "Vue d'ensemble", fmt_section)
     row += 1
+
     overview = [
         ("Nombre total d'ouvrages", kpis["total"]),
         ("Année min", kpis["annee_min"] if kpis["annee_min"] is not None else "—"),
         ("Année max", kpis["annee_max"] if kpis["annee_max"] is not None else "—"),
         ("Année moyenne", kpis["annee_moy"] if kpis["annee_moy"] is not None else "—"),
-        ("Taux de géolocalisation",
-         f"{kpis['taux_geo']*100:.1f} % ({kpis['geo_avec']}/{kpis['geo_total']})"),
-        ("Taux de CGPE fonctionnel",
-         f"{kpis['taux_cgpe']*100:.1f} % ({kpis['cgpe_fonctionnel']}/{kpis['cgpe_total']})"),
+        (
+            "Taux de géolocalisation",
+            f"{kpis['taux_geo'] * 100:.1f} % " f"({kpis['geo_avec']}/{kpis['geo_total']})",
+        ),
+        (
+            "Taux de CGPE fonctionnel",
+            f"{kpis['taux_cgpe'] * 100:.1f} % "
+            f"({kpis['cgpe_fonctionnel']}/{kpis['cgpe_total']})",
+        ),
     ]
     for label, value in overview:
         ws.write(row, 0, label, fmt_label)
@@ -544,7 +582,6 @@ def _write_synthese_sheet(workbook: xlsxwriter.Workbook, kpis: dict[str, Any]) -
     ws.set_column(1, 1, 25)
 
 
-
 # =====================================================================
 # Export Excel
 # =====================================================================
@@ -555,7 +592,6 @@ def export_ouvrages_xlsx(
     with_summary: bool = True,
 ) -> Generator[bytes, None, None]:
     _check_export_limit(db, filters)
-
     metadata_columns = _get_metadata_columns(db, filters) if include_metadata else []
     geo_cache: dict[int, dict[str, str]] = {}
 
@@ -568,12 +604,11 @@ def export_ouvrages_xlsx(
 
     ws = wb.add_worksheet("Ouvrages")
     fmt_header = wb.add_format({"bold": True, "bg_color": "#EBF5FB", "border": 1})
-
     headers = [label for _, label in STANDARD_COLUMNS]
     if include_metadata:
         headers.extend(metadata_columns)
-
     ws.write_row(0, 0, headers, fmt_header)
+
     ws.set_column(0, 0, 6)
     ws.set_column(1, len(headers) - 1, 20)
 
@@ -603,7 +638,6 @@ def export_ouvrages_csv(
     include_metadata: bool = False,
 ) -> Generator[str, None, None]:
     _check_export_limit(db, filters)
-
     metadata_columns = _get_metadata_columns(db, filters) if include_metadata else []
     geo_cache: dict[int, dict[str, str]] = {}
 
@@ -624,6 +658,8 @@ def export_ouvrages_csv(
             if include_metadata:
                 values.extend(row.get(mkey, "") for mkey in metadata_columns)
             writer.writerow(values)
+
+            # Flush par paquets de ~10 Ko pour le streaming
             if buffer.tell() > 10_000:
                 yield buffer.getvalue()
                 buffer.seek(0)
@@ -631,11 +667,3 @@ def export_ouvrages_csv(
 
     if buffer.tell() > 0:
         yield buffer.getvalue()
-
-
-def filename_xlsx() -> str:
-    return _filename("xlsx")
-
-
-def filename_csv() -> str:
-    return _filename("csv")

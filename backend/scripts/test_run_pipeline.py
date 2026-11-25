@@ -122,25 +122,37 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Test complet du pipeline DHR.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--id-fichier", type=int, help="ID d'un fichier déjà présent en base")
-    group.add_argument("--fichier", type=str, help="Chemin vers un fichier .xlsx à insérer et tester")
+    group.add_argument(
+        "--fichier", type=str, help="Chemin vers un fichier .xlsx à insérer et tester"
+    )
 
-    parser.add_argument("--id-feuille", type=int, default=None, help="ID d'une feuille spécifique (optionnel)")
+    parser.add_argument(
+        "--id-feuille", type=int, default=None, help="ID d'une feuille spécifique (optionnel)"
+    )
     parser.add_argument(
         "--mode",
         choices=["complet", "echantillon", "plage"],
         default="complet",
         help="Mode d'ingestion (défaut: complet)",
     )
-    parser.add_argument("--limite", type=int, default=None, help="Nombre de lignes (requis pour --mode echantillon)")
-    parser.add_argument("--debut", type=int, default=None, help="Ligne de début (requis pour --mode plage)")
-    parser.add_argument("--fin", type=int, default=None, help="Ligne de fin (requis pour --mode plage)")
+    parser.add_argument(
+        "--limite", type=int, default=None, help="Nombre de lignes (requis pour --mode echantillon)"
+    )
+    parser.add_argument(
+        "--debut", type=int, default=None, help="Ligne de début (requis pour --mode plage)"
+    )
+    parser.add_argument(
+        "--fin", type=int, default=None, help="Ligne de fin (requis pour --mode plage)"
+    )
 
     args = parser.parse_args()
 
     # Validation des paramètres selon le mode (alignée sur chk_run_mode_params)
     if args.mode == "echantillon" and (args.limite is None or args.limite <= 0):
         parser.error("--mode echantillon exige --limite > 0")
-    if args.mode == "plage" and (args.debut is None or args.fin is None or args.debut < 1 or args.fin < args.debut):
+    if args.mode == "plage" and (
+        args.debut is None or args.fin is None or args.debut < 1 or args.fin < args.debut
+    ):
         parser.error("--mode plage exige --debut >= 1 et --fin >= --debut")
 
     db = SessionLocal()
@@ -154,10 +166,16 @@ def main() -> None:
             if fichier is None:
                 print(f"[X] Fichier id={args.id_fichier} introuvable en base.", flush=True)
                 sys.exit(1)
-            print(f"[1] Fichier existant récupéré : id={fichier.id_fichier} ({fichier.nom_fichier_original})", flush=True)
+            print(
+                f"[1] Fichier existant récupéré : id={fichier.id_fichier} ({fichier.nom_fichier_original})",
+                flush=True,
+            )
         else:
             fichier = _preparer_fichier_depuis_chemin(db, args.fichier)
-            print(f"[1] Fichier créé depuis disque : id={fichier.id_fichier} ({fichier.nom_fichier_original})", flush=True)
+            print(
+                f"[1] Fichier créé depuis disque : id={fichier.id_fichier} ({fichier.nom_fichier_original})",
+                flush=True,
+            )
 
         # Création du run
         run = creer_run(
@@ -170,7 +188,10 @@ def main() -> None:
             ligne_fin=args.fin,
         )
         db.flush()
-        print(f"[2] Run créé : id={run.id_run} (id_feuille={args.id_feuille}, statut={run.statut})", flush=True)
+        print(
+            f"[2] Run créé : id={run.id_run} (id_feuille={args.id_feuille}, statut={run.statut})",
+            flush=True,
+        )
 
         # Exécution des 3 étapes (Ingestion -> Rapprochement -> Consolidation)
         print("[3] Lancement executer_pipeline...", flush=True)
@@ -184,16 +205,31 @@ def main() -> None:
 
         print(f"\n{'-'*70}", flush=True)
         print("STATUTS FINAUX EN BASE :", flush=True)
-        print(f"  Fichier #{fichier.id_fichier} : statut={fichier.statut!r} | nb_lignes_total={fichier.nb_lignes_total}", flush=True)
-        print(f"  Run #{run.id_run}     : statut={run.statut!r} | nb_lignes_ingerees={run.nb_lignes_ingerees} | finished_at={run.finished_at}", flush=True)
+        print(
+            f"  Fichier #{fichier.id_fichier} : statut={fichier.statut!r} | nb_lignes_total={fichier.nb_lignes_total}",
+            flush=True,
+        )
+        print(
+            f"  Run #{run.id_run}     : statut={run.statut!r} | nb_lignes_ingerees={run.nb_lignes_ingerees} | finished_at={run.finished_at}",
+            flush=True,
+        )
 
         ing = resultat["ingestion"]
         rap = resultat["rapprochement"]
         con = resultat["consolidation"]
         print("\nRÉSULTATS PAR ÉTAPE :", flush=True)
-        print(f"  1. Ingestion     : {ing['total_stockees']} stockées, {ing['total_rejetees']} rejetées", flush=True)
-        print(f"  2. Rapprochement : {rap['exact']} exact, {rap['alias']} alias, {rap['trigram']} trigram, {rap['non_resolu']} non résolues", flush=True)
-        print(f"  3. Consolidation : {con['ouvrages_crees']} créés, {con['ouvrages_mis_a_jour']} mis à jour, {con['doublons_suspects']} doublons suspects", flush=True)
+        print(
+            f"  1. Ingestion     : {ing['total_stockees']} stockées, {ing['total_rejetees']} rejetées",
+            flush=True,
+        )
+        print(
+            f"  2. Rapprochement : {rap['exact']} exact, {rap['alias']} alias, {rap['trigram']} trigram, {rap['non_resolu']} non résolues",
+            flush=True,
+        )
+        print(
+            f"  3. Consolidation : {con['ouvrages_crees']} créés, {con['ouvrages_mis_a_jour']} mis à jour, {con['doublons_suspects']} doublons suspects",
+            flush=True,
+        )
 
         rows_qualite = db.execute(
             select(LigneIngeree.statut_qualite, func.count())

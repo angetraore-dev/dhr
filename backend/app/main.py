@@ -4,6 +4,7 @@ Point d'entrée FastAPI.
 Phase 3 : ajout des routers + authentification API key.
 Phase D : handlers d'erreur RFC 7807 + lifespan.
 """
+
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
@@ -71,9 +72,7 @@ def _problem_response(
     errors: list[dict[str, Any]] | None = None,
 ) -> ORJSONResponse:
     """Construit une réponse RFC 7807 (Problem Details)."""
-    slug, title = _ERROR_TYPES.get(
-        status_code, (f"http-{status_code}", "Error")
-    )
+    slug, title = _ERROR_TYPES.get(status_code, (f"http-{status_code}", "Error"))
     body: dict[str, Any] = {
         "type": f"{_ERROR_TYPE_BASE}/{slug}",
         "title": title,
@@ -128,9 +127,7 @@ app.add_middleware(
 # Exception handlers RFC 7807
 # =====================================================================
 @app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(
-    request: Request, exc: StarletteHTTPException
-) -> ORJSONResponse:
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> ORJSONResponse:
     """Convertit toute HTTPException en Problem Details.
 
     `exc.detail` peut être :
@@ -188,9 +185,7 @@ async def validation_exception_handler(
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(
-    request: Request, exc: Exception
-) -> ORJSONResponse:
+async def unhandled_exception_handler(request: Request, exc: Exception) -> ORJSONResponse:
     """Filet de sécurité : toute exception non gérée → 500 RFC 7807.
 
     On log l'exception complète côté serveur, mais on n'expose pas

@@ -12,6 +12,7 @@ Couvre les formats :
 - Hors bornes
 - NULL
 """
+
 from __future__ import annotations
 
 import pytest
@@ -38,8 +39,12 @@ class TestParserUneCoordonnee:
         assert parser_une_coordonnee("075225", est_latitude=True) == pytest.approx(7.8736, abs=1e-3)
 
     def test_dms_explicite(self):
-        assert parser_une_coordonnee("7°52'25\"N", est_latitude=True) == pytest.approx(7.8736, abs=1e-3)
-        assert parser_une_coordonnee("5°30'0\"W", est_latitude=False) == pytest.approx(-5.5, abs=1e-3)
+        assert parser_une_coordonnee("7°52'25\"N", est_latitude=True) == pytest.approx(
+            7.8736, abs=1e-3
+        )
+        assert parser_une_coordonnee("5°30'0\"W", est_latitude=False) == pytest.approx(
+            -5.5, abs=1e-3
+        )
 
     def test_direction(self):
         assert parser_une_coordonnee("7.5 N", est_latitude=True) == 7.5
@@ -79,8 +84,8 @@ class TestParserCoordonnees:
 
     def test_zero_zero(self):
         lat, lon = parser_coordonnees(0, 0)
-        assert lat == 0.0 #is None
-        assert lon == 0.0 #is None
+        assert lat == 0.0  # is None
+        assert lon == 0.0  # is None
 
     def test_null(self):
         lat, lon = parser_coordonnees(None, None)

@@ -1,6 +1,7 @@
 """
 Router des référentiels : sources, référentiel géo, localités.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -31,6 +32,7 @@ router = APIRouter(
     tags=["Référentiels"],
     dependencies=[Depends(require_api_key)],
 )
+
 
 # =====================================================================
 # SOURCES
@@ -63,9 +65,7 @@ def list_sources(
     summary="Nœuds du référentiel géographique administratif",
 )
 def list_ref_geo(
-    niveau: Literal[
-        "district", "region", "departement", "sous_prefecture", "localite"
-    ]
+    niveau: Literal["district", "region", "departement", "sous_prefecture", "localite"]
     | None = Query(None),
     parent_id: int | None = Query(None),
     pagination: OffsetPagination = Depends(),
@@ -88,9 +88,7 @@ def list_ref_geo(
     parent_ids = {r.parent_id for r in rows if r.parent_id is not None}
     parents_map: dict[int, RefGeoAdmin] = {}
     if parent_ids:
-        parents = db.scalars(
-            select(RefGeoAdmin).where(RefGeoAdmin.id_geo.in_(parent_ids))
-        ).all()
+        parents = db.scalars(select(RefGeoAdmin).where(RefGeoAdmin.id_geo.in_(parent_ids))).all()
         parents_map = {p.id_geo: p for p in parents}
 
     result = []
@@ -168,6 +166,7 @@ def get_ref_geo_chemin(id: int, db: Session = Depends(get_db)) -> list[RefGeoAdm
         for r in rows
     ]
 
+
 # =====================================================================
 # LOCALITÉS
 # =====================================================================
@@ -179,26 +178,84 @@ def get_ref_geo_chemin(id: int, db: Session = Depends(get_db)) -> list[RefGeoAdm
 def list_localites(
     id_geo: int | None = Query(None),
     q: str | None = Query(None, description="Recherche floue sur le nom"),
+    region: str | None = Query(None, description="Filtrer par région"),
+    departement: str | None = Query(None, description="Filtrer par département"),
+    sous_prefecture: str | None = Query(None, description="Filtrer par sous-préfecture"),
     pagination: OffsetPagination = Depends(),
     db: Session = Depends(get_db),
 ) -> PaginatedOffset[LocaliteResume]:
-    stmt = select(Localite)
+    rg_loc = RefGeoAdmin.__table__.alias("rg_loc")
+    rg_sp = RefGeoAdmin.__table__.alias("rg_sp")
+    rg_dep = RefGeoAdmin.__table__.alias("rg_dep")
+    rg_reg = RefGeoAdmin.__table__.alias("rg_reg")
+
+    stmt = (
+        select(
+            Localite,
+            rg_reg.c.nom.label("region_nom"),
+            rg_dep.c.nom.label("departement_nom"),
+            rg_sp.c.nom.label("sous_prefecture_nom"),
+        )
+        .join(rg_loc, Localite.id_geo == rg_loc.c.id_geo)
+        .outerjoin(rg_sp, rg_loc.c.parent_id == rg_sp.c.id_geo)
+        .outerjoin(rg_dep, rg_sp.c.parent_id == rg_dep.c.id_geo)
+        .outerjoin(rg_reg, rg_dep.c.parent_id == rg_reg.c.id_geo)
+    )
+
+    # Filtres
     if id_geo is not None:
         stmt = stmt.where(Localite.id_geo == id_geo)
     if q:
-        stmt = stmt.where(
+        stmt = stmt.where(func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{q}%")))
+    if region:
+        stmt = stmt.where(rg_reg.c.nom == region)
+    if departement:
+        stmt = stmt.where(rg_dep.c.nom == departement)
+    if sous_prefecture:
+        stmt = stmt.where(rg_sp.c.nom == sous_prefecture)
+
+    # Comptage (sans jointures, plus rapide)
+    count_stmt = select(func.count()).select_from(Localite)
+    if id_geo is not None:
+        count_stmt = count_stmt.where(Localite.id_geo == id_geo)
+    if q:
+        count_stmt = count_stmt.where(
             func.unaccent(Localite.nom_usage).ilike(func.unaccent(f"%{q}%"))
         )
+    # Pour les filtres géo, on doit joindre
+    if region or departement or sous_prefecture:
+        count_stmt = (
+            count_stmt.join(rg_loc, Localite.id_geo == rg_loc.c.id_geo)
+            .outerjoin(rg_sp, rg_loc.c.parent_id == rg_sp.c.id_geo)
+            .outerjoin(rg_dep, rg_sp.c.parent_id == rg_dep.c.id_geo)
+            .outerjoin(rg_reg, rg_dep.c.parent_id == rg_reg.c.id_geo)
+        )
+        if region:
+            count_stmt = count_stmt.where(rg_reg.c.nom == region)
+        if departement:
+            count_stmt = count_stmt.where(rg_dep.c.nom == departement)
+        if sous_prefecture:
+            count_stmt = count_stmt.where(rg_sp.c.nom == sous_prefecture)
 
-    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = db.scalars(
-        stmt.order_by(Localite.nom_usage)
-        .offset(pagination.offset)
-        .limit(pagination.limit)
+    total = db.scalar(count_stmt)
+
+    rows = db.execute(
+        stmt.order_by(Localite.nom_usage).offset(pagination.offset).limit(pagination.limit)
     ).all()
 
+    data = [
+        LocaliteResume(
+            id_localite=row[0].id_localite,
+            nom_usage=row[0].nom_usage,
+            region=row[1],
+            departement=row[2],
+            sous_prefecture=row[3],
+        )
+        for row in rows
+    ]
+
     return PaginatedOffset(
-        data=[LocaliteResume.model_validate(r) for r in rows],
+        data=data,
         pagination=pagination.to_response(total=total),
     )
 
@@ -214,9 +271,7 @@ def get_localite(
     db: Session = Depends(get_db),
 ) -> LocaliteSchema:
     loc = db.scalar(
-        select(Localite)
-        .where(Localite.id_localite == id)
-        .options(selectinload(Localite.alias))
+        select(Localite).where(Localite.id_localite == id).options(selectinload(Localite.alias))
     )
     if loc is None:
         raise HTTPException(

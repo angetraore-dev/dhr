@@ -6,6 +6,7 @@ Fonctions :
 - sauvegarder_mapping_feuille(db, id_feuille, colonnes) → sauvegarde validée
 - charger_mapping_pour_ingestion(db, feuille, entetes, header_row) → mapping pour l'ingestion
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,8 +39,7 @@ def _normaliser(texte: str | None) -> str:
         return ""
     texte = str(texte).strip().lower()
     texte = "".join(
-        c for c in unicodedata.normalize("NFD", texte)
-        if unicodedata.category(c) != "Mn"
+        c for c in unicodedata.normalize("NFD", texte) if unicodedata.category(c) != "Mn"
     )
     texte = re.sub(r"[\s\-_]+", " ", texte).strip()
     return texte
@@ -69,9 +69,11 @@ def _detecter_header_row(ws, max_scan: int = 30) -> int:
             return row_idx
     return best_row
 
+
 def _get_patterns() -> dict[str, list[re.Pattern]]:
     """Récupère les patterns partagés."""
     return COLUMN_PATTERNS
+
 
 # =====================================================================
 # Proposition de mapping
@@ -156,7 +158,9 @@ def proposer_mapping_fichier(
             header_row = _detecter_header_row(ws)
 
             entetes: list[str] = []
-            for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row, values_only=False)):
+            for cell in next(
+                ws.iter_rows(min_row=header_row, max_row=header_row, values_only=False)
+            ):
                 entetes.append(str(cell.value) if cell.value is not None else "")
 
             # Si un mapping validé existe, on l'utilise
@@ -193,6 +197,7 @@ def proposer_mapping_fichier(
         wb.close()
 
     return resultats
+
 
 # ====================================================================
 # Validation
@@ -238,9 +243,11 @@ def _valider_colonnes_mapping(colonnes: list[MappingValidationColonne]) -> None:
 
         raise ValueError(f"Champ cible inconnu : '{cible}'")
 
+
 # =====================================================================
 # Sauvegarde du mapping validé
 # =====================================================================
+
 
 def sauvegarder_mapping_feuille(
     db: Session,
@@ -345,5 +352,6 @@ def charger_mapping_pour_ingestion(
 
     # 2. Fallback : mapping auto (via une fonction locale pour éviter l'import circulaire)
     from app.services.ingestion import _analyser_entetes
+
     mapping_auto = _analyser_entetes(entetes, feuille.index_feuille, header_row)
     return mapping_auto.colonnes_mappees

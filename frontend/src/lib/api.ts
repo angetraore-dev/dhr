@@ -1,9 +1,14 @@
 /**
  * Client API DHR.
  * Utilise fetch natif. Gère API key + JWT.
+ *
+ * Notes :
+ * - `API_BASE = '/api'` : proxy Vite → http://localhost:8000/v1
+ *   (à configurer dans vite.config.ts : `/api` → `http://localhost:8000/v1`)
+ * - `request()` gère RFC 7807 et redirige vers /parametres sur 401 (F5)
  */
 
-const API_BASE = '/api'  // proxy Vite → http://localhost:8000/v1
+const API_BASE = '/api'
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'dhr_dev_read_key_change_me'
 
@@ -44,8 +49,39 @@ export interface Problem {
 export interface Source {
     id_source: number
     nom: string
-    type_source: string
+    type_source: 'public' | 'prive' | 'bailleur' | 'etat' | 'autre'
     actif: boolean
+}
+
+export interface RefGeoParent {
+    id_geo: number
+    niveau: string
+    nom: string
+}
+
+export interface RefGeoAdmin {
+    id_geo: number
+    niveau: 'district' | 'region' | 'departement' | 'sous_prefecture' | 'localite'
+    nom: string
+    code_officiel: string | null
+    type_localite: 'village' | 'campement' | 'autre' | null
+    parent: RefGeoParent | null
+}
+
+export interface LocaliteResume {
+    id_localite: number
+    nom_usage: string
+    region?: string | null
+    departement?: string | null
+    sous_prefecture?: string | null
+}
+
+export interface Localite extends LocaliteResume {
+    latitude_centre: number | null
+    longitude_centre: number | null
+    geom_centre: { type: 'Point'; coordinates: [number, number] } | null
+    alias: string[]
+    metadata?: Record<string, unknown> | null
 }
 
 export interface Fichier {
@@ -68,10 +104,10 @@ export interface Feuille {
     id_fichier: number
     nom_feuille: string
     index_feuille: number
-    type_contenu: string
+    type_contenu: 'ouvrages' | 'cgpe' | 'mixte' | 'autre' | 'inconnu'
     nb_lignes: number
     nb_lignes_valides: number
-    statut_ingestion: string
+    statut_ingestion: 'en_attente' | 'en_cours' | 'ingere' | 'partiel' | 'erreur'
     message_erreur: string | null
 }
 
@@ -88,6 +124,30 @@ export interface IngestionRun {
     message: string | null
     started_at: string
     finished_at: string | null
+}
+
+export type StatutQualite =
+    | 'ok'
+    | 'localite_non_resolue'
+    | 'geom_invalide'
+    | 'type_ouvrage_inconnu'
+    | 'rejete'
+    | 'doublon_suspect'
+
+export interface LigneIngeree {
+    id_ligne: number
+    id_feuille: number
+    num_ligne_source: number
+    localite_brute: string | null
+    type_ouvrage_brut: string | null
+    usage_ouvrage_brut: string | null
+    latitude_decimal: number | null
+    longitude_decimal: number | null
+    statut_qualite: StatutQualite
+    message_qualite?: string | null
+    annee_projet: number | null
+    bailleur_brut: string | null
+    donnees_brutes?: Record<string, unknown>
 }
 
 export interface MappingColonne {
@@ -108,14 +168,25 @@ export interface MappingProposalFeuille {
 export interface Ouvrage {
     id_ouvrage: number
     code_ouvrage: string | null
-    type_ouvrage: { code: string; libelle: string }
-    etat: string
+    nature_ouvrage: 'puits' | 'forage' | 'inconnu' | null
+    type_alimentation: 'PMH' | 'HVA' | 'PEA' | 'HV' | 'AUTRE' | null
+    realisation_par: 'public' | 'prive' | 'inconnu' | null
+    etat: 'fonctionnel' | 'en_panne' | 'abandonne' | 'inconnu'
     annee_realisation: number | null
-    localite: { id_localite: number; nom_usage: string }
-    geom: { type: string; coordinates: [number, number] } | null
+    region: string | null
+    departement: string | null
+    sous_prefecture: string | null
+    localite: LocaliteResume
+    geom: { type: 'Point'; coordinates: [number, number] } | null
     cgpe: { existe: boolean; statut: string | null } | null
-    financements: { id_projet: number; nom_projet: string; bailleur: string; role: string }[]
-    metadata: Record<string, unknown> | null
+    financements: Array<{
+        id_projet: number
+        nom_projet: string
+        bailleur: string | null
+        role: 'principal' | 'co_financement'
+    }>
+    qualite_eau?: Record<string, unknown> | null
+    metadata?: Record<string, unknown> | null
 }
 
 export interface QualiteFichier {
@@ -146,75 +217,158 @@ export interface FeatureCollection {
     meta: Record<string, unknown>
 }
 
+export interface OuvrageFilters {
+    [key: string]: string | number | undefined
+    nature_ouvrage?: string
+    type_alimentation?: string
+    realisation_par?: string
+    etat?: string
+    region?: string
+    departement?: string
+    sous_prefecture?: string
+    localite?: string
+    bailleur?: string
+    annee_min?: number
+    annee_max?: number
+}
+
+// ---------- Helpers ----------
+function triggerBlobDownload(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+}
+
+function toQuery(params?: Record<string, string | number | undefined>): string {
+    const q = new URLSearchParams()
+    if (params) {
+        for (const [k, v] of Object.entries(params)) {
+            if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
+        }
+    }
+    const s = q.toString()
+    return s ? `?${s}` : ''
+}
+
+async function parseProblem(res: Response): Promise<Problem> {
+    try {
+        return (await res.json()) as Problem
+    } catch {
+        return { type: 'unknown', title: 'Erreur', status: res.status }
+    }
+}
+
 // ---------- Requêtes ----------
-async function request<T>(
-    path: string,
-    options: RequestInit & { auth?: 'api_key' | 'jwt' | 'none' } = {},
-): Promise<T> {
+type AuthMode = 'api_key' | 'jwt' | 'none'
+
+async function request<T>(path: string, options: RequestInit & { auth?: AuthMode } = {},): Promise<T> {
     const { auth = 'api_key', ...fetchOptions } = options
 
     const headers = new Headers(fetchOptions.headers)
-    headers.set('Content-Type', 'application/json')
+    if (!headers.has('Content-Type') && fetchOptions.body) {
+        headers.set('Content-Type', 'application/json')
+    }
 
     if (auth === 'api_key') {
         headers.set('X-API-Key', API_KEY)
     } else if (auth === 'jwt') {
-        if (!jwtToken) throw new Error('JWT manquant. Connectez-vous.')
+        if (!jwtToken) throw new Error('JWT manquant. Connectez-vous dans Paramètres.')
         headers.set('Authorization', `Bearer ${jwtToken}`)
     }
 
     const res = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers })
 
-    if (!res.ok) {
-        let problem: Problem
-        try {
-            problem = await res.json()
-        } catch {
-            problem = { type: 'unknown', title: 'Erreur', status: res.status }
+    if (res.status === 401) {
+        // F5 : redirection vers /parametres sur 401
+        if (typeof window !== 'undefined' && window.location.pathname !== '/parametres') {
+            window.location.href = '/parametres'
         }
-        throw Object.assign(new Error(problem.title || 'Erreur API'), { problem })
+    }
+
+    if (!res.ok) {
+        const problem = await parseProblem(res)
+        const err = new Error(problem.title || 'Erreur API') as Error & { problem?: Problem }
+        err.problem = problem
+        throw err
     }
 
     if (res.status === 204) return undefined as T
-    return res.json()
+    return res.json() as Promise<T>
 }
 
 // ---------- Endpoints ----------
 export const api = {
-    // Référentiels
-    sources: () => request<{ data: Source[] }>('/sources'),
-    typesOuvrage: () => request<{ data: unknown[] }>('/types-ouvrage'),
+    // ----- Référentiels -----
+    sources: (params?: { offset?: number; limit?: number }) =>
+        request<{ data: Source[]; pagination: PaginationOffset }>(
+            `/sources${toQuery(params)}`,
+        ),
 
-    // Fichiers
-    fichiers: (params?: { offset?: number; limit?: number }) => {
-        const q = new URLSearchParams()
-        if (params?.offset !== undefined) q.set('offset', String(params.offset))
-        if (params?.limit !== undefined) q.set('limit', String(params.limit))
-        return request<{ data: Fichier[]; pagination: PaginationOffset }>(`/fichiers?${q}`)
-    },
+    refGeo: (params?: { niveau?: string; parent_id?: number; offset?: number; limit?: number }) =>
+        request<{ data: RefGeoAdmin[]; pagination: PaginationOffset }>(
+            `/ref-geo${toQuery(params)}`,
+        ),
+
+    refGeoChemin: (idGeo: number) =>
+        request<RefGeoAdmin[]>(`/ref-geo/${idGeo}/chemin`),
+
+    localites: (params?: {
+        q?: string
+        id_geo?: number
+        region?: string
+        departement?: string
+        sous_prefecture?: string
+        offset?: number
+        limit?: number
+    }) =>
+        request<{ data: LocaliteResume[]; pagination: PaginationOffset }>(
+            `/localites${toQuery(params)}`,
+        ),
+
+    localite: (id: number, includeMetadata = false) =>
+        request<Localite>(
+            `/localites/${id}${includeMetadata ? '?include=metadata' : ''}`,
+        ),
+
+    // ----- Fichiers -----
+    fichiers: (params?: { id_source?: number; statut?: string; offset?: number; limit?: number }) =>
+        request<{ data: Fichier[]; pagination: PaginationOffset }>(
+            `/fichiers${toQuery(params)}`,
+        ),
+
     fichier: (id: number) => request<Fichier>(`/fichiers/${id}`),
-    feuilles: (idFichier: number) =>
-        request<{ data: Feuille[]; pagination: PaginationOffset }>(`/fichiers/${idFichier}/feuilles`),
 
-    // Upload
-    upload: async (file: File, idSource: number, commentaire?: string) => {
+    feuilles: (idFichier: number, params?: { offset?: number; limit?: number }) =>
+        request<{ data: Feuille[]; pagination: PaginationOffset }>(
+            `/fichiers/${idFichier}/feuilles${toQuery(params)}`,
+        ),
+
+    // ----- Upload -----
+    upload: async (file: File, idSource: number, commentaire?: string, force = false) => {
         const form = new FormData()
         form.append('file', file)
         form.append('id_source', String(idSource))
         if (commentaire) form.append('commentaire', commentaire)
 
+        if (!jwtToken) throw new Error('JWT manquant. Connectez-vous dans Paramètres.')
         const headers = new Headers()
-        if (!jwtToken) throw new Error('JWT manquant')
         headers.set('Authorization', `Bearer ${jwtToken}`)
 
-        const res = await fetch(`${API_BASE}/fichiers`, {
-            method: 'POST',
-            headers,
-            body: form,
-        })
+        const res = await fetch(
+            `${API_BASE}/fichiers${force ? '?force=true' : ''}`,
+            { method: 'POST', headers, body: form },
+        )
+
         if (!res.ok) {
-            const problem = await res.json().catch(() => ({}))
-            throw Object.assign(new Error(problem.detail || 'Erreur upload'), { problem })
+            const problem = await parseProblem(res)
+            const err = new Error(problem.title || 'Erreur upload') as Error & { problem?: Problem }
+            err.problem = problem
+            throw err
         }
         return res.json() as Promise<{
             id_fichier: number
@@ -226,78 +380,131 @@ export const api = {
         }>
     },
 
-    // Mapping
+    // ----- Mapping -----
     mappingProposal: (idFichier: number) =>
         request<MappingProposalFeuille[]>(`/fichiers/${idFichier}/mapping-proposal`),
-    saveMapping: (idFichier: number, idFeuille: number, colonnes: { entete_brut: string; champ_cible: string | null }[]) =>
-        request<MappingProposalFeuille>(`/fichiers/${idFichier}/mapping?id_feuille=${idFeuille}`, {
-            method: 'PUT',
+
+    saveMapping: (
+        idFichier: number,
+        idFeuille: number,
+        colonnes: { entete_brut: string; champ_cible: string | null }[],
+    ) =>
+        request<MappingProposalFeuille>(
+            `/fichiers/${idFichier}/mapping?id_feuille=${idFeuille}`,
+            { method: 'PUT', auth: 'jwt', body: JSON.stringify({ colonnes }) },
+        ),
+
+    // ----- Runs & Lignes -----
+    lancerRun: (
+        idFichier: number,
+        params?: {
+            mode?: 'complet' | 'echantillon' | 'plage'
+            id_feuille?: number
+            limite_lignes?: number
+            ligne_debut?: number
+            ligne_fin?: number
+        },
+    ) =>
+        request<{
+            id_run: number
+            id_fichier: number
+            statut: string
+            started_at: string
+            poll_url: string
+        }>(`/fichiers/${idFichier}/runs${toQuery(params ?? { mode: 'complet' })}`, {
+            method: 'POST',
             auth: 'jwt',
-            body: JSON.stringify({ colonnes }),
         }),
 
-    // Runs
-    lancerRun: (idFichier: number, mode: 'complet' | 'echantillon' | 'plage' = 'complet') =>
-        request<{ id_run: number; id_fichier: number; statut: string; started_at: string; poll_url: string }>(
-            `/fichiers/${idFichier}/runs?mode=${mode}`,
-            { method: 'POST', auth: 'jwt' },
-        ),
     run: (id: number) => request<IngestionRun>(`/runs/${id}`),
-    runsFichier: (idFichier: number) =>
-        request<{ data: IngestionRun[]; pagination: PaginationOffset }>(`/fichiers/${idFichier}/runs`),
 
-    // Ouvrages
-    ouvrages: (params?: Record<string, string | number>) => {
-        const q = new URLSearchParams()
-        if (params) for (const [k, v] of Object.entries(params)) q.set(k, String(v))
-        return request<{ data: Ouvrage[]; pagination: PaginationCursor }>(`/ouvrages?${q}`)
-    },
-    ouvrage: (id: number) => request<Ouvrage>(`/ouvrages/${id}`),
+    runsFichier: (idFichier: number, params?: { offset?: number; limit?: number }) =>
+        request<{ data: IngestionRun[]; pagination: PaginationOffset }>(
+            `/fichiers/${idFichier}/runs${toQuery(params)}`,
+        ),
 
-    // Carto
-    cartoFichier: (idFichier: number, params?: Record<string, string | number>) => {
-        const q = new URLSearchParams()
-        if (params) for (const [k, v] of Object.entries(params)) q.set(k, String(v))
-        return request<FeatureCollection>(`/carto/fichiers/${idFichier}/points?${q}`)
-    },
-    cartoTous: (params?: Record<string, string | number>) => {
-        const q = new URLSearchParams()
-        if (params) for (const [k, v] of Object.entries(params)) q.set(k, String(v))
-        return request<FeatureCollection>(`/carto/tous/points?${q}`)
-    },
+    lignesRun: (
+        idRun: number,
+        params?: { statut_qualite?: string; cursor?: string; limit?: number },
+    ) =>
+        request<{ data: LigneIngeree[]; pagination: PaginationCursor }>(
+            `/runs/${idRun}/lignes${toQuery(params)}`,
+        ),
 
-    // Qualité
-    qualite: (idFichier: number) => request<QualiteFichier>(`/qualite/fichiers/${idFichier}`),
+    lignesFeuille: (
+        idFeuille: number,
+        params?: { id_run?: number; statut_qualite?: string; cursor?: string; limit?: number },
+    ) =>
+        request<{ data: LigneIngeree[]; pagination: PaginationCursor }>(
+            `/feuilles/${idFeuille}/lignes${toQuery(params)}`,
+        ),
 
-    // Export (retourne un blob)
-    exportExcel: async (params?: Record<string, string | number>) => {
-        const q = new URLSearchParams()
-        if (params) for (const [k, v] of Object.entries(params)) q.set(k, String(v))
+    ligne: (id: number, includeBrut = false) =>
+        request<LigneIngeree>(
+            `/lignes/${id}${includeBrut ? '?include=brut' : ''}`,
+        ),
+
+    // ----- Ouvrages -----
+    ouvrages: (params?: OuvrageFilters & { cursor?: string; limit?: number; include?: string }) =>
+        request<{ data: Ouvrage[]; pagination: PaginationCursor }>(
+            `/ouvrages${toQuery(params)}`,
+        ),
+
+    ouvrage: (id: number, includeMetadata = false) =>
+        request<Ouvrage>(
+            `/ouvrages/${id}${includeMetadata ? '?include=metadata' : ''}`,
+        ),
+
+    // ----- Carto -----
+    cartoFichier: (
+        idFichier: number,
+        params?: {
+            id_feuille?: number
+            id_run?: number
+            statut_qualite?: string
+            type_alimentation?: string
+            localite?: string
+            region?: string
+            departement?: string
+            sous_prefecture?: string
+        },
+    ) =>
+        request<FeatureCollection>(
+            `/carto/fichiers/${idFichier}/points${toQuery(params)}`,
+        ),
+
+    // ----- Carto Ouvrages Consolides par Fichier Specifique ----
+    cartoFichiersOuvrages: (idFichier: number) =>
+        request<FeatureCollection>(`/carto/fichiers/${idFichier}/ouvrages`),
+
+    // ---- Carto Points Geojson des fichiers consolides ----
+    cartoTous: (params?: OuvrageFilters & { include?: string }) =>
+        request<FeatureCollection>(`/carto/tous/points${toQuery(params)}`),
+
+    // ----- Qualité -----
+    qualite: (idFichier: number) =>
+        request<QualiteFichier>(`/qualite/fichiers/${idFichier}`),
+
+    // ----- Export (fetch + blob, F3) -----
+    exportOuvrages: async (
+        format: 'xlsx' | 'csv',
+        params?: OuvrageFilters & { include?: string; with_summary?: boolean },
+    ) => {
+        const path = format === 'csv' ? '/ouvrages/export.csv' : '/ouvrages/export'
         const headers = new Headers()
         headers.set('X-API-Key', API_KEY)
-        const res = await fetch(`${API_BASE}/ouvrages/export?${q}`, { headers })
-        if (!res.ok) throw new Error('Erreur export Excel')
-        return res.blob()
-    },
-    exportCsv: async (params?: Record<string, string | number>) => {
-        const q = new URLSearchParams()
-        if (params) for (const [k, v] of Object.entries(params)) q.set(k, String(v))
-        const headers = new Headers()
-        headers.set('X-API-Key', API_KEY)
-        const res = await fetch(`${API_BASE}/ouvrages/export.csv?${q}`, { headers })
-        if (!res.ok) throw new Error('Erreur export CSV')
-        return res.blob()
-    },
-    refGeo: (params?: { niveau?: string; parent_id?: number }) => {
-        const q = new URLSearchParams()
-        if (params?.niveau) q.set('niveau', params.niveau)
-        if (params?.parent_id !== undefined) q.set('parent_id', String(params.parent_id))
-        return request<{ data: any[]; pagination: PaginationOffset }>(`/ref-geo?${q}`)
-    },
-    localites: (params?: { q?: string; limit?: number }) => {
-        const q = new URLSearchParams()
-        if (params?.q) q.set('q', params.q)
-        if (params?.limit !== undefined) q.set('limit', String(params.limit))
-        return request<{ data: any[]; pagination: PaginationOffset }>(`/localites?${q}`)
+
+        const res = await fetch(`${API_BASE}${path}${toQuery(params)}`, { headers })
+
+        if (!res.ok) {
+            const problem = await parseProblem(res)
+            throw new Error(
+                problem.title || `Erreur export ${format.toUpperCase()}`,
+            )
+        }
+
+        const blob = await res.blob()
+        const date = new Date().toISOString().slice(0, 10)
+        triggerBlobDownload(blob, `ouvrages_${date}.${format}`)
     },
 }

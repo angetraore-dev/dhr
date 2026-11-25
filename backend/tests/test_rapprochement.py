@@ -7,6 +7,7 @@ Couvre :
 - Localité non résolue (INCONNU → localite_non_resolue).
 - Format strict du message_qualite (I3).
 """
+
 from __future__ import annotations
 
 from app.models import IngestionRun, LigneIngeree
@@ -32,13 +33,9 @@ def _creer_ligne(db, id_feuille, id_run, localite_brute, statut="ok"):
 class TestRapprochement:
     """Tests du rapprochement."""
 
-    def test_match_exact(
-        self, db, localite_test, fichier_avec_feuille
-    ):
+    def test_match_exact(self, db, localite_test, fichier_avec_feuille):
         fichier, feuille = fichier_avec_feuille
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
@@ -50,19 +47,13 @@ class TestRapprochement:
         assert ligne.id_localite == localite_test.id_localite
         assert ligne.statut_qualite == "ok"
 
-    def test_localite_non_resolue(
-        self, db, localite_test, fichier_avec_feuille
-    ):
+    def test_localite_non_resolue(self, db, localite_test, fichier_avec_feuille):
         fichier, feuille = fichier_avec_feuille
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
-        ligne = _creer_ligne(
-            db, feuille.id_feuille, run.id_run, "INCONNU_XYZ_123"
-        )
+        ligne = _creer_ligne(db, feuille.id_feuille, run.id_run, "INCONNU_XYZ_123")
 
         stats = rapprocher_lignes_run(db, run.id_run)
 
@@ -70,20 +61,14 @@ class TestRapprochement:
         assert ligne.id_localite is None
         assert ligne.statut_qualite == "localite_non_resolue"
 
-    def test_message_qualite_strict(
-        self, db, localite_test, fichier_avec_feuille
-    ):
+    def test_message_qualite_strict(self, db, localite_test, fichier_avec_feuille):
         """I3 : message_qualite format strict, sans suffixe debug."""
         fichier, feuille = fichier_avec_feuille
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
-        ligne = _creer_ligne(
-            db, feuille.id_feuille, run.id_run, "INCONNU_XYZ_123"
-        )
+        ligne = _creer_ligne(db, feuille.id_feuille, run.id_run, "INCONNU_XYZ_123")
 
         rapprocher_lignes_run(db, run.id_run)
 
@@ -91,20 +76,14 @@ class TestRapprochement:
         assert "Localité non résolue" in ligne.message_qualite
         assert "(méthode:" not in ligne.message_qualite
 
-    def test_ligne_geom_invalide_ignoree(
-        self, db, localite_test, fichier_avec_feuille
-    ):
+    def test_ligne_geom_invalide_ignoree(self, db, localite_test, fichier_avec_feuille):
         """Les lignes geom_invalide ne sont pas rapprochées."""
         fichier, feuille = fichier_avec_feuille
-        run = IngestionRun(
-            id_fichier=fichier.id_fichier, mode="complet", statut="en_cours"
-        )
+        run = IngestionRun(id_fichier=fichier.id_fichier, mode="complet", statut="en_cours")
         db.add(run)
         db.flush()
 
-        ligne = _creer_ligne(
-            db, feuille.id_feuille, run.id_run, "LOC_TEST", statut="geom_invalide"
-        )
+        ligne = _creer_ligne(db, feuille.id_feuille, run.id_run, "LOC_TEST", statut="geom_invalide")
 
         stats = rapprocher_lignes_run(db, run.id_run)
 

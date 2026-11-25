@@ -5,6 +5,7 @@ Utilise pydantic-settings pour charger depuis .env et valider les types.
 Toutes les variables sont documentées dans .env.example.
  PostgresDsn,
 """
+
 from functools import lru_cache
 from typing import Literal
 

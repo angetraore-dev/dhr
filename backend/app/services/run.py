@@ -5,6 +5,7 @@ IMPORTANT (Bible § 3.2.4, décision A3) :
 - `fichier.statut` est mis à jour ICI, en fin de pipeline, pas par `ingestion.py`.
 - `fichier.date_ingestion` idem.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,9 +31,7 @@ def _determiner_statut_fichier(db: Session, fichier: Fichier) -> str:
     - 'partiel' : au moins une 'erreur' et au moins une 'ingere'
     - 'erreur'  : toutes les feuilles 'erreur'
     """
-    feuilles = db.scalars(
-        select(Feuille).where(Feuille.id_fichier == fichier.id_fichier)
-    ).all()
+    feuilles = db.scalars(select(Feuille).where(Feuille.id_fichier == fichier.id_fichier)).all()
     if not feuilles:
         return "erreur"
 
@@ -45,6 +44,7 @@ def _determiner_statut_fichier(db: Session, fichier: Fichier) -> str:
     if nb_err > 0 and nb_ok > 0:
         return "partiel"
     return "ingere"
+
 
 def creer_run(
     db: Session,
@@ -81,6 +81,7 @@ def creer_run(
     db.flush()
     return run
 
+
 def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
     """
     Exécute le pipeline complet pour un run :
@@ -105,7 +106,9 @@ def executer_pipeline(db: Session, id_run: int) -> dict[str, Any]:
         # 1. INGESTION
         logger.info("Run %s : ingestion", id_run)
         resultat_ingestion = ingerer_fichier(
-            db, fichier, run,
+            db,
+            fichier,
+            run,
             mode=run.mode,
             limite_lignes=run.limite_lignes,
             ligne_debut=run.ligne_debut,

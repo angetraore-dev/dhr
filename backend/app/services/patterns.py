@@ -7,6 +7,7 @@ Ce fichier est partagé par :
 
 Il ne dépend d'aucun autre service (pas d'import circulaire).
 """
+
 from __future__ import annotations
 
 import re
@@ -96,6 +97,26 @@ COLUMN_PATTERNS: dict[str, list[re.Pattern]] = {
         re.compile(r"existence[_\s]cgpe", re.I),
         re.compile(r"^nb[_\s]comite$", re.I),
         re.compile(r"^organe\s*gestion$", re.I),
+    ],
+    "qualite_eau": [
+        re.compile(r"^qualit[ée][_\s-]*eau$", re.I),
+        re.compile(r"^potabilit[ée]$", re.I),
+        re.compile(r"^eau[_\s-]*potable$", re.I),
+        re.compile(r"^etat[_\s-]*eau$", re.I),
+    ],
+    "metadata.qualite_eau.vers_de_guinee": [
+        re.compile(r"vers[_\s-]*(de[_\s-]*)?guin[ée]e", re.I),
+        re.compile(r"dracunculose", re.I),
+    ],
+    "metadata.qualite_eau.onchocercose": [
+        re.compile(r"onchocercose", re.I),
+    ],
+    "metadata.qualite_eau.bilharziose": [
+        re.compile(r"bilharziose", re.I),
+    ],
+    "metadata.qualite_eau.eau_salee": [
+        re.compile(r"eau[_\s-]*sal[ée]e", re.I),
+        re.compile(r"salinit[ée]", re.I),
     ],
 }
 

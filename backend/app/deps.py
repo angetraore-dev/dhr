@@ -38,9 +38,7 @@ class CursorPagination:
         self.limit = limit
 
     def to_response(self, next_cursor: str | None, has_more: bool) -> PaginationCursor:
-        return PaginationCursor(
-            limit=self.limit, next_cursor=next_cursor, has_more=has_more
-        )
+        return PaginationCursor(limit=self.limit, next_cursor=next_cursor, has_more=has_more)
 
 
 # --- Types alignés sur les CHECK SQL (Bible § 2.2.C) ---
@@ -49,9 +47,14 @@ NatureOuvrage = Literal["puits", "forage", "inconnu"]
 RealisationPar = Literal["public", "prive", "inconnu"]
 EtatOuvrage = Literal["fonctionnel", "en_panne", "abandonne", "inconnu"]
 StatutQualite = Literal[
-    "ok", "localite_non_resolue", "geom_invalide",
-    "type_ouvrage_inconnu", "rejete", "doublon_suspect",
+    "ok",
+    "localite_non_resolue",
+    "geom_invalide",
+    "type_ouvrage_inconnu",
+    "rejete",
+    "doublon_suspect",
 ]
+
 
 # --- Filtres carto/ouvrages ---
 class OuvrageFilters:

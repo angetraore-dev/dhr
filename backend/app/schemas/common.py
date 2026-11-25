@@ -1,6 +1,7 @@
 """
 Schémas communs : erreurs RFC 7807, pagination.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -16,9 +17,7 @@ class Problem(BaseModel):
     status: int = Field(..., description="Code HTTP")
     detail: str | None = Field(None, description="Message précis")
     instance: str | None = Field(None, description="URI de la requête")
-    errors: list[dict[str, Any]] | None = Field(
-        None, description="Liste des erreurs par champ"
-    )
+    errors: list[dict[str, Any]] | None = Field(None, description="Liste des erreurs par champ")
 
 
 class PaginationOffset(BaseModel):

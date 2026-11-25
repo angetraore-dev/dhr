@@ -1,6 +1,7 @@
 """
 Schémas des fichiers et feuilles.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -41,10 +42,9 @@ class Feuille(BaseModel):
     type_contenu: Literal["ouvrages", "cgpe", "mixte", "autre", "inconnu"]
     nb_lignes: int
     nb_lignes_valides: int
-    statut_ingestion: Literal[
-        "en_attente", "en_cours", "ingere", "partiel", "erreur"
-    ]
+    statut_ingestion: Literal["en_attente", "en_cours", "ingere", "partiel", "erreur"]
     message_erreur: str | None = None
+
 
 # ----- Mapping -----
 class MappingColonne(BaseModel):

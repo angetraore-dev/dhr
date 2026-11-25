@@ -44,6 +44,11 @@ export H_READ=(-H "X-API-Key: $API_KEY")
 export H_WRITE=(-H "X-API-Key: $API_KEY" -H "Authorization: Bearer $JWT")
 echo "API_KEY=$API_KEY"
 echo "JWT=$JWT"
+
+
+docker compose exec -T backend ruff format .
+docker compose exec -T backend mypy app/services app/models
+docker compose exec -T backend pytest --cov=app --cov-fail-under=70
 ```
 
 ### 0.2 Vérifier que l'API répond
@@ -1002,3 +1007,8 @@ GROUP BY 1,2,3,4
 HAVING COUNT(*) > 1;
 -- Attendu : 0 ligne
 ```
+
+> curl.exe -s -H "X-API-Key: dhr_dev_read_key_change_me" "http://localhost:8000/v1/ouvrages/export?format=xlsx" -o export_complet.xlsx 
+> curl.exe -s -H "X-API-Key: dhr_dev_read_key_change_me" "http://localhost:8000/v1/ouvrages/export?format=xlsx&nature_ouvrage=puits" -o export_puits.xlsx
+> curl.exe -s -H "X-API-Key: dhr_dev_read_key_change_me" "http://localhost:8000/v1/ouvrages/export?nature_ouvrage=puits" -o export_puits.xlsx 
+> curl.exe -s -H "X-API-Key: dhr_dev_read_key_change_me" "http://localhost:8000/v1/ouvrages/export?nature_ouvrage=forage&type_alimentation=HV" -o export_forages_hv.xlsx
