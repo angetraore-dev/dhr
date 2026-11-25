@@ -16,11 +16,10 @@ import traceback
 
 sys.path.insert(0, "/app")
 
-from sqlalchemy import func, select
-
 from app.db import SessionLocal
 from app.models import Fichier, IngestionRun, LigneIngeree
 from app.services.rapprochement import rapprocher_lignes_run
+from sqlalchemy import func, select
 
 
 def main(id_run: int) -> None:
